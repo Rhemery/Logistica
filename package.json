@@ -1,0 +1,31 @@
+{
+  "scripts": {
+    "typecheck": "tsc -b",
+    "lint": "eslint kubejs_ts",
+    "check": "npm run typecheck && npm run lint",
+    "build": "node build-kubejs.mjs",
+    "recipes:schema": "tsx ./scripts/create-schemas.mjs",
+    "scan:worldgen": "tsx ./scripts/scan-worldgen.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/plugin-transform-block-scoping": "^7.28.6",
+    "@babel/plugin-transform-for-of": "^7.27.1",
+    "@babel/plugin-transform-object-rest-spread": "^7.28.6",
+    "@babel/plugin-transform-parameters": "^7.27.7",
+    "@babel/plugin-transform-shorthand-properties": "^7.27.1",
+    "@babel/plugin-transform-spread": "^7.28.6",
+    "@eslint/js": "^10.0.1",
+    "adm-zip": "^0.5.17",
+    "change-case": "^5.4.4",
+    "esbuild": "^0.28.0",
+    "eslint": "^10.2.1",
+    "eslint-config-prettier": "^10.1.8",
+    "fast-glob": "^3.3.3",
+    "globals": "^17.5.0",
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.0"
+  }
+}

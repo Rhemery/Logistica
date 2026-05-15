@@ -1,0 +1,64 @@
+# Node / JavaScript
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+*.tsbuildinfo
+.eslintcache
+coverage/
+dist/
+build/
+
+# IDE / editor / OS
+.idea/
+.vs/
+*.code-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+kubejs/config/web_server.json
+kubejs/config/probe-settings.json
+
+# Minecraft runtime and local instance data
+logs/
+crash-reports/
+saves/
+downloads/
+local/
+.mixin.out/
+fancymenu_data/
+mods/
+resourcepacks/
+shaderpacks/
+schematics/
+command_history.txt
+usercache.json
+usernamecache.json
+options.txt
+win_event*.txt
+hs_err_pid*.log
+
+# ProbeJS cache
+.probe/
+
+# Generated KubeJS outputs
+kubejs/client_scripts/generated/
+kubejs/server_scripts/generated/
+kubejs/startup_scripts/generated/
+kubejs/exported/
+kubejs_ts/generated/
+
+# Large generated analysis artifacts
+scripts/combined.json
+scripts/recipes.json
+scripts/recipe_types.json
+
+# CurseForge instance metadata (machine-specific paths and cache)
+minecraftinstance.json
+.curseclient

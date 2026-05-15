@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "typeRoots": [
+      "./.probe/packages",
+      "./.probe/startup",
+      "./kubejs_ts/types"
+    ]
+  },
+  "include": [
+    "./kubejs_ts/shared/**/*.ts",
+    "./kubejs_ts/types/**/*.d.ts"
+  ]
+}

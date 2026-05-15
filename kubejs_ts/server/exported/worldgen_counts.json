@@ -1,0 +1,15 @@
+{
+  "item_tag": 245,
+  "block_tag": 250,
+  "placed_feature": 236,
+  "configured_feature": 199,
+  "block_loot_table": 1622,
+  "biome_modifier": 3,
+  "recipe": 3174,
+  "chest_loot_table": 56,
+  "entity_loot_table": 100,
+  "biome_tag": 70,
+  "biome": 64,
+  "structure": 34,
+  "structure_set": 20
+}
