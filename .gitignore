@@ -43,6 +43,10 @@ usernamecache.json
 options.txt
 win_event*.txt
 hs_err_pid*.log
+imgui.ini
+config/iris.properties
+config/indigo-renderer.properties
+config/crash_assistant/modlist.json
 
 # ProbeJS cache
 .probe/
