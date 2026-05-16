@@ -1,24 +1,24 @@
-import { $RecipesKubeEvent } from "dev.latvian.mods.kubejs.recipe.RecipesKubeEvent";
+import { $RecipesKubeEvent } from "@package/dev/latvian/mods/kubejs/recipe";
 import { Recipe, UnknownJavaRecipe } from "kubejs_ts/types/recipe";
 import { clearObject, deepSearch, tryParse } from ".";
 import { DeepSearchObject, ItemId } from "kubejs_ts/types";
 import { ItemStack } from "kubejs_ts/types/item";
-import { tagHasItem } from "./item";
+import { tagHasItem, tagId } from "./item";
 
 export function loadRecipes(event: $RecipesKubeEvent) {
   if (Object.keys(global.items).length == 0) {
-    console.error(
+    console.errorf(
       "[Economy] loadRecipes() depends on loadItems(), but no items found.",
     );
   }
-  console.info("[Economy] Collecting recipes...");
+  console.infof("[Economy] Collecting recipes...");
   clearObject(global.recipes);
 
   const recipes: Record<string, UnknownJavaRecipe> = {};
 
   const javaRecipes = {};
   event.forEachRecipe({}, (javaRecipe) => {
-    const id = String(javaRecipe.getId());
+    const id = javaRecipe.getId();
     const json = tryParse(javaRecipe.json) as UnknownJavaRecipe | null;
     if (!json) return;
 
@@ -27,13 +27,13 @@ export function loadRecipes(event: $RecipesKubeEvent) {
     const recipe = normalizeRecipe(id, json);
 
     Object.values(recipe.inputs).forEach((input) => {
-      const itemId = input.id as keyof typeof global.items;
+      const itemId = input.id;
       if (!global.items[itemId]) return;
 
       global.items[itemId].recipes.asInput.push(id);
     });
     Object.values(recipe.outputs).forEach((output) => {
-      const itemId = output.id as keyof typeof global.items;
+      const itemId = output.id;
       if (!global.items[itemId]) return;
 
       global.items[itemId].recipes.asOutput.push(id);
@@ -47,13 +47,11 @@ export function loadRecipes(event: $RecipesKubeEvent) {
 
   JsonIO.write(
     "kubejs/exported/server/java_recipes.json",
-    JSON.parse(JSON.stringify(javaRecipes, null, 2)) as typeof javaRecipes,
+    JSON.parse(JSON.stringify(javaRecipes, null, 2)),
   );
   JsonIO.write(
     "kubejs/exported/server/recipes.json",
-    JSON.parse(
-      JSON.stringify(global.recipes, null, 2),
-    ) as typeof global.recipes,
+    JSON.parse(JSON.stringify(global.recipes, null, 2)),
   );
 }
 
@@ -193,17 +191,17 @@ export function normalizeRecipe(id: string, recipe: UnknownJavaRecipe): Recipe {
   const items = normalizeInputs.concat(normalizedOutputs).map((i) => i.id);
   const inputs = normalizeInputs.reduce<Record<ItemId, ItemStack>>(
     (map, input) => {
-      map[input.id as keyof typeof map] = input;
+      map[input.id] = input;
       return map;
     },
-    {},
+    {} as Record<ItemId, ItemStack>,
   );
   const outputs = normalizedOutputs.reduce<Record<ItemId, ItemStack>>(
     (map, input) => {
-      map[input.id as keyof typeof map] = input;
+      map[input.id] = input;
       return map;
     },
-    {},
+    {} as Record<ItemId, ItemStack>,
   );
 
   function recipeKind(
@@ -211,11 +209,13 @@ export function normalizeRecipe(id: string, recipe: UnknownJavaRecipe): Recipe {
     outputs: ItemStack[],
   ): Recipe["kind"] {
     for (const input of inputs) {
-      if (tagHasItem("#c:storage_blocks", input.id)) return "decompression";
+      if (tagHasItem(tagId("#c:storage_blocks"), input.id))
+        return "decompression";
     }
 
     for (const output of outputs) {
-      if (tagHasItem("#c:storage_blocks", output.id)) return "compression";
+      if (tagHasItem(tagId("#c:storage_blocks"), output.id))
+        return "compression";
     }
 
     return "unknown";

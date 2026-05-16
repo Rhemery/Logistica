@@ -15,13 +15,13 @@ import {
   HUB_DEFAULT_WATCH_ITEMS,
   HUB_INACTIVITY_TICKS,
 } from "./core/hub";
-import { normalizeChunkKey } from "./core/chunk";
+import { normalizeChunkKey } from "./chunk";
 import {
   EXCAVATION_RICHNESS_MAX,
   EXCAVATION_RICHNESS_MIN,
 } from "./core/excavation";
-import { $MinecraftServer } from "net.minecraft.server.MinecraftServer";
-import { $CompoundTag } from "net.minecraft.nbt.CompoundTag";
+import { $MinecraftServer } from "@package/net/minecraft/server";
+import { $CompoundTag } from "@package/net/minecraft/nbt";
 
 export const RUNTIME_STATE_NBT_KEY = "logisticaMvpStateJson";
 export const RUNTIME_STATE_SAVE_INTERVAL_TICKS = 20 * 15;
@@ -93,7 +93,7 @@ export function normalizeRuntimeState(raw: unknown): LogisticsRuntimeState {
               const normalizedOrder = order as Partial<VillageDemandOrder>;
               const itemId =
                 typeof normalizedOrder.itemId === "string"
-                  ? (normalizedOrder.itemId as ItemId)
+                  ? normalizedOrder.itemId
                   : ("minecraft:air" as ItemId);
               return {
                 itemId,
@@ -127,11 +127,9 @@ export function normalizeRuntimeState(raw: unknown): LogisticsRuntimeState {
   const hubs: HubDispatchState[] = Array.isArray(state.hubs)
     ? state.hubs.map((entry) => {
         const candidate = entry as Partial<HubDispatchState>;
-        const watchItems: ItemId[] = (
-          Array.isArray(candidate.watchItems)
-            ? candidate.watchItems.map((itemId) => itemId as ItemId)
-            : HUB_DEFAULT_WATCH_ITEMS
-        ) as ItemId[];
+        const watchItems: ItemId[] = Array.isArray(candidate.watchItems)
+          ? candidate.watchItems.map((itemId) => itemId)
+          : HUB_DEFAULT_WATCH_ITEMS;
         const key = typeof candidate.key === "string" ? candidate.key : "";
         const dimension =
           typeof candidate.dimension === "string"
@@ -189,7 +187,7 @@ export function normalizeRuntimeState(raw: unknown): LogisticsRuntimeState {
                 const normalized = resource as Partial<ExcavationResourceShare>;
                 const itemId =
                   typeof normalized.itemId === "string"
-                    ? (normalized.itemId as ItemId)
+                    ? normalized.itemId
                     : ("minecraft:air" as ItemId);
                 return {
                   itemId,
@@ -241,7 +239,7 @@ export function normalizeRuntimeState(raw: unknown): LogisticsRuntimeState {
 export function persistRuntimeState(server: $MinecraftServer): void {
   if (!runtimeStateCache) return;
 
-  const data = server.persistentData as $CompoundTag;
+  const data = server.persistentData;
   data.putString(RUNTIME_STATE_NBT_KEY, JSON.stringify(runtimeStateCache));
 }
 
@@ -257,14 +255,14 @@ export function getRuntimeState(
   let loadedState: LogisticsRuntimeState | null = null;
 
   if (data.contains(RUNTIME_STATE_NBT_KEY)) {
-    const json = String(data.getString(RUNTIME_STATE_NBT_KEY));
+    const json = data.getString(RUNTIME_STATE_NBT_KEY);
     if (json && json.length > 0) {
       try {
         loadedState = normalizeRuntimeState(JSON.parse(json));
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        console.warn(
+        console.warnf(
           `[Logistica] Failed to parse runtime state JSON: ${errorMessage}`,
         );
       }

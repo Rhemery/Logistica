@@ -1,18 +1,14 @@
 import { ItemId } from "kubejs_ts/types";
 import { HubDispatchState } from "kubejs_ts/types/logistics";
-import { $MinecraftServer } from "net.minecraft.server.MinecraftServer";
 import { getControllerBlock, isMainHand } from "../utils";
 import { describeInventoryPresent, getRelativeInventory } from "../inventory";
 import { getRuntimeState, persistRuntimeState } from "../runtime";
 import { removeStation, toStationRef } from "../station";
-import { $LevelBlock } from "dev.latvian.mods.kubejs.level.LevelBlock";
-import { $ItemStack$$Type } from "net.minecraft.world.item.ItemStack";
-import { $InventoryKJS } from "dev.latvian.mods.kubejs.core.InventoryKJS";
 import { toPlainNumber } from "../math";
-import { countItem } from "../item";
-import { $BlockBrokenKubeEvent } from "dev.latvian.mods.kubejs.block.BlockBrokenKubeEvent";
-import { $BlockRightClickedKubeEvent } from "dev.latvian.mods.kubejs.block.BlockRightClickedKubeEvent";
-import { $BlockPlacedKubeEvent } from "dev.latvian.mods.kubejs.block.BlockPlacedKubeEvent";
+import { countItem, itemId } from "../item";
+import { $MinecraftServer } from "@package/net/minecraft/server";
+import { $LevelBlock } from "@package/dev/latvian/mods/kubejs/level";
+import { $InventoryKJS } from "@package/dev/latvian/mods/kubejs/core";
 
 export const HUB_DISPATCH_BLOCK_ID = "kubejs:hub_dispatch_controller";
 export const DISPATCH_TOKEN_ITEM = "minecraft:paper" as ItemId;
@@ -41,7 +37,7 @@ export function handleHubDispatch(
   fallbackEnabled: boolean,
 ): void {
   const block = getControllerBlock(server, hub);
-  if (!block || String(block.getId()) !== HUB_DISPATCH_BLOCK_ID) {
+  if (!block || block.getId() !== HUB_DISPATCH_BLOCK_ID) {
     return;
   }
 
@@ -81,7 +77,7 @@ export function handleHubDispatch(
   hub.lastDispatchTick = tick;
   hub.dispatchCount += 1;
 
-  console.info(
+  console.infof(
     `[Logistica] Hub dispatch token queued (${reason}) at ${hub.key}`,
   );
 }
@@ -118,21 +114,21 @@ export function createDispatchTokenStack(
   sourceKey: string,
   reason: string,
 ) {
-  const stack = Item.of(DISPATCH_TOKEN_ITEM as $ItemStack$$Type, amount);
+  const stack = Item.of(DISPATCH_TOKEN_ITEM, amount);
 
-  stack.withCustomName(Text.gold(DISPATCH_TOKEN_NAME));
+  stack.withCustomName(Text.gold(DISPATCH_TOKEN_NAME).getString());
 
   stack.withLore([
-    Text.gray("Place below outpost/village controller"),
-    Text.darkGray(`Source: ${sourceKey}`),
-    Text.darkGray(`Reason: ${reason}`),
+    Text.gray("Place below outpost/village controller").getString(),
+    Text.darkGray(`Source: ${sourceKey}`).getString(),
+    Text.darkGray(`Reason: ${reason}`).getString(),
   ]);
 
   try {
-    const customData = stack.customData;
+    const customData = stack.getCustomData();
     customData.putBoolean(DISPATCH_TOKEN_FLAG, true);
     customData.putString(DISPATCH_TOKEN_SOURCE, sourceKey);
-    stack.customData = customData;
+    stack.setCustomData(customData);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (_error) {
     // Custom data can fail on some KubeJS/loader combos; fallback is ID check.
@@ -148,7 +144,7 @@ export function isDispatchTokenStack(
   if (stack.id !== DISPATCH_TOKEN_ITEM) return false;
 
   try {
-    const customData = stack.customData;
+    const customData = stack.getCustomData();
     if (customData.contains(DISPATCH_TOKEN_FLAG)) {
       return customData.getBoolean(DISPATCH_TOKEN_FLAG);
     }
@@ -166,7 +162,7 @@ export function countDispatchTokens(inventory: $InventoryKJS): number {
   for (let slot = 0; slot < inventory.getSlots(); slot++) {
     const stack = inventory.getStackInSlot(slot);
     if (!isDispatchTokenStack(stack)) continue;
-    total += toPlainNumber(stack.count, 0);
+    total += toPlainNumber(stack.getCount(), 0);
   }
 
   return total;
@@ -187,12 +183,15 @@ export function extractDispatchTokens(
     const stack = inventory.getStackInSlot(slot);
     if (!isDispatchTokenStack(stack)) continue;
 
-    const slotCount = toPlainNumber(stack.count, 0);
+    const slotCount = toPlainNumber(stack.getCount(), 0);
     if (slotCount <= 0) continue;
 
     const take = Math.min(remaining, slotCount);
-    stack.count = slotCount - take;
-    inventory.setStackInSlot(slot, stack as unknown as $ItemStack$$Type);
+    stack.setCount(slotCount - take);
+    inventory.setStackInSlot(slot, {
+      id: itemId(stack.id),
+      count: stack.getCount(),
+    });
 
     extracted += take;
     remaining -= take;
@@ -208,10 +207,13 @@ export function insertDispatchToken(
 ): number {
   const token = createDispatchTokenStack(1, sourceKey, reason);
   const remaining = inventory.insertItem(
-    token as unknown as $ItemStack$$Type,
+    {
+      id: itemId(token.id),
+      count: token.getCount(),
+    },
     false,
   );
-  const leftover = toPlainNumber(remaining?.count, 0);
+  const leftover = toPlainNumber(remaining.getCount(), 0);
   return Math.max(0, 1 - leftover);
 }
 
@@ -229,55 +231,40 @@ export function isThresholdTriggered(
   });
 }
 
-// @ts-expect-error ddddddddddd
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-BlockEvents.placed(
-  HUB_DISPATCH_BLOCK_ID as any,
-  (event: $BlockPlacedKubeEvent) => {
-    if (event.level.isClientSide()) return;
-    addOrGetHubDispatch(event.server, event.block);
-  },
-);
+BlockEvents.placed(HUB_DISPATCH_BLOCK_ID, (event) => {
+  if (event.level.isClientSide()) return;
+  addOrGetHubDispatch(event.server, event.block);
+});
 
-// @ts-expect-error ddddddddddd
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-BlockEvents.broken(
-  HUB_DISPATCH_BLOCK_ID as any,
-  (event: $BlockBrokenKubeEvent) => {
-    if (event.level.isClientSide()) return;
-    removeStation(event.server, toStationRef(event.block).key);
-  },
-);
+BlockEvents.broken(HUB_DISPATCH_BLOCK_ID, (event) => {
+  if (event.level.isClientSide()) return;
+  removeStation(event.server, toStationRef(event.block).key);
+});
 
-// @ts-expect-error ddddddddddd
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-BlockEvents.rightClicked(
-  HUB_DISPATCH_BLOCK_ID as any,
-  (event: $BlockRightClickedKubeEvent) => {
-    if (!isMainHand(String(event.hand))) return;
-    if (event.level.isClientSide()) return;
+BlockEvents.rightClicked(HUB_DISPATCH_BLOCK_ID, (event) => {
+  if (!isMainHand(String(event.hand))) return;
+  if (event.level.isClientSide()) return;
 
-    const hub = addOrGetHubDispatch(event.server, event.block);
-    const dispatchInventory = getRelativeInventory(event.block, 0, -1, 0);
-    const tokenCount = dispatchInventory
-      ? countDispatchTokens(dispatchInventory)
-      : 0;
+  const hub = addOrGetHubDispatch(event.server, event.block);
+  const dispatchInventory = getRelativeInventory(event.block, 0, -1, 0);
+  const tokenCount = dispatchInventory
+    ? countDispatchTokens(dispatchInventory)
+    : 0;
 
-    event.player.tell(Text.gold(`[Logistica] Hub dispatch ${hub.key}`));
-    event.player.tell(
-      Text.gray(
-        `Stock above: ${describeInventoryPresent(event.block, 0, 1, 0)} | dispatch buffer below: ${describeInventoryPresent(event.block, 0, -1, 0)} (${tokenCount})`,
-      ),
-    );
-    event.player.tell(
-      Text.gray(
-        `Tokens sent lifetime: ${hub.dispatchCount} | threshold/item: ${hub.thresholdPerItem} | inactivity: ${hub.inactivityTicks}t`,
-      ),
-    );
-    event.player.tell(
-      Text.darkGray(
-        `Usage: move ${DISPATCH_TOKEN_NAME} papers from this buffer to the inventory below remote mining/village controllers.`,
-      ),
-    );
-  },
-);
+  event.player.tell({
+    text: `[Logistica] Hub dispatch ${hub.key}`,
+    color: "gold",
+  });
+  event.player.tell({
+    text: `Stock above: ${describeInventoryPresent(event.block, 0, 1, 0)} | dispatch buffer below: ${describeInventoryPresent(event.block, 0, -1, 0)} (${tokenCount})`,
+    color: "gray",
+  });
+  event.player.tell({
+    text: `Tokens sent lifetime: ${hub.dispatchCount} | threshold/item: ${hub.thresholdPerItem} | inactivity: ${hub.inactivityTicks}t`,
+    color: "gray",
+  });
+  event.player.tell({
+    text: `Usage: move ${DISPATCH_TOKEN_NAME} papers from this buffer to the inventory below remote mining/village controllers.`,
+    color: "dark_gray",
+  });
+});

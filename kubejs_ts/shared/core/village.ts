@@ -1,5 +1,5 @@
 import { ItemId } from "kubejs_ts/types";
-import { chunkKey, toChunkCoord } from "./chunk";
+import { chunkKey, toChunkCoord } from "../chunk";
 import {
   LogisticsRuntimeState,
   MarketEntry,
@@ -8,8 +8,6 @@ import {
 } from "kubejs_ts/types/logistics";
 import { getRuntimeState, persistRuntimeState } from "../runtime";
 import { removeStation, toStationRef } from "../station";
-import { $LevelBlock } from "dev.latvian.mods.kubejs.level.LevelBlock";
-import { $MinecraftServer } from "net.minecraft.server.MinecraftServer";
 import { randomInt, toPlainNumber } from "../math";
 import {
   compressCoins,
@@ -24,13 +22,12 @@ import {
   MAX_TOKENS_PER_STEP,
 } from "./hub";
 import { extractItem, insertItem } from "../item";
-import { $Player } from "net.minecraft.world.entity.player.Player";
-import { $EntityArrayList } from "dev.latvian.mods.kubejs.player.EntityArrayList";
-import { $Level } from "net.minecraft.world.level.Level";
-import { $BlockPos } from "net.minecraft.core.BlockPos";
-import { $BlockPlacedKubeEvent } from "dev.latvian.mods.kubejs.block.BlockPlacedKubeEvent";
-import { $BlockBrokenKubeEvent } from "dev.latvian.mods.kubejs.block.BlockBrokenKubeEvent";
-import { $BlockRightClickedKubeEvent } from "dev.latvian.mods.kubejs.block.BlockRightClickedKubeEvent";
+import { $MinecraftServer } from "@package/net/minecraft/server";
+import { $LevelBlock } from "@package/dev/latvian/mods/kubejs/level";
+import { $Player } from "@package/net/minecraft/world/entity/player";
+import { $EntityArrayList } from "@package/dev/latvian/mods/kubejs/player";
+import { $Level } from "@package/net/minecraft/world/level";
+import { $BlockPos } from "@package/net/minecraft/core";
 
 export const VILLAGE_MARKET_BLOCK_ID = "kubejs:village_market_controller";
 export const VILLAGE_REFRESH_TICKS = 20 * 45;
@@ -187,7 +184,7 @@ export function handleVillageMarket(
   tick: number,
 ): void {
   const block = getControllerBlock(server, market);
-  if (!block || String(block.getId()) !== VILLAGE_MARKET_BLOCK_ID) {
+  if (!block || block.getId() !== VILLAGE_MARKET_BLOCK_ID) {
     market.unloadedCycles += 1;
     market.backlogRefreshes = Math.min(
       VILLAGE_DEFAULT_MAX_BACKLOG,
@@ -275,18 +272,23 @@ export function showVillageOrders(
   market: VillageMarketState,
 ): void {
   if (market.orders.length === 0) {
-    player.tell(Text.yellow("No active village orders right now."));
+    player.tell({
+      text: "No active village orders right now.",
+      color: "yellow",
+    });
     return;
   }
 
-  player.tell(Text.gold("Active village orders:"));
+  player.tell({
+    text: "Active village orders:",
+    color: "gold",
+  });
   market.orders.forEach((order, index) => {
     const total = order.remaining * order.unitPrice;
-    player.tell(
-      Text.aqua(
-        `#${index + 1} ${order.remaining}x ${order.itemId} @ ${order.unitPrice} Spurs (total ${total})`,
-      ),
-    );
+    player.tell({
+      text: `#${index + 1} ${order.remaining}x ${Item.of(order.itemId).displayName.getString()} @ ${order.unitPrice} Spurs (total ${total})`,
+      color: "aqua",
+    });
   });
 }
 
@@ -315,7 +317,7 @@ export function countVillagePoiMarkersNear(block: $LevelBlock): number {
         const nearby = block.offset(x, y, z);
         if (!nearby) continue;
 
-        const blockId = String(nearby.getId());
+        const blockId = nearby.getId();
         if (!isVillageMarkerBlockId(blockId)) continue;
 
         markers += 1;
@@ -341,9 +343,7 @@ export function countNearbyVillagers(block: $LevelBlock): number {
   if (!entities) return 0;
 
   try {
-    entities = entities.filterType(
-      "minecraft:villager" as "probejs$$object$$minecraft:entity_type",
-    );
+    entities = entities.filterType("minecraft:villager");
     entities = entities.filterDistance(
       block.getX(),
       block.getY(),
@@ -361,7 +361,7 @@ export function countNearbyVillagers(block: $LevelBlock): number {
 export function isNativeVillageAt(block: $LevelBlock): boolean {
   try {
     const rawLevel = block.getLevel() as $Level & {
-      isVillage: (arg1: $BlockPos) => boolean;
+      isVillage: (pos: $BlockPos) => boolean;
     };
     const pos = block.getPos();
     return rawLevel.isVillage(pos);
@@ -434,9 +434,7 @@ export function discoverVillageChunksFromPlacement(
   return true;
 }
 
-// @ts-expect-error asddsadasdasd
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-BlockEvents.placed(VILLAGE_MARKET_BLOCK_ID, (event: $BlockPlacedKubeEvent) => {
+BlockEvents.placed(VILLAGE_MARKET_BLOCK_ID, (event) => {
   if (event.level.isClientSide()) return;
 
   const state = getRuntimeState(event.server);
@@ -455,16 +453,14 @@ BlockEvents.placed(VILLAGE_MARKET_BLOCK_ID, (event: $BlockPlacedKubeEvent) => {
   if (!inAllowedChunk && !discoveredNow && !isCreativePlayer(event.player)) {
     event.cancel();
     if (event.player) {
-      event.player.tell(
-        Text.red(
-          "Village Market Controller can only be placed in a detected village chunk.",
-        ),
-      );
-      event.player.tell(
-        Text.gray(
-          "Detection checks villagers + village POIs nearby, then marks the local village chunks.",
-        ),
-      );
+      event.player.tell({
+        text: "Village Market Controller can only be placed in a detected village chunk.",
+        color: "red",
+      });
+      event.player.tell({
+        text: "Detection checks villagers + village POIs nearby, then marks the local village chunks.",
+        color: "gray",
+      });
     }
     return;
   }
@@ -472,54 +468,42 @@ BlockEvents.placed(VILLAGE_MARKET_BLOCK_ID, (event: $BlockPlacedKubeEvent) => {
   addOrGetVillageMarket(event.server, event.block);
 });
 
-// @ts-expect-error feawgesgefsedfe
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-BlockEvents.broken(
-  VILLAGE_MARKET_BLOCK_ID as any,
-  (event: $BlockBrokenKubeEvent) => {
-    if (event.level.isClientSide()) return;
-    removeStation(event.server, toStationRef(event.block).key);
-  },
-);
+BlockEvents.broken(VILLAGE_MARKET_BLOCK_ID, (event) => {
+  if (event.level.isClientSide()) return;
+  removeStation(event.server, toStationRef(event.block).key);
+});
 
-// @ts-expect-error feawgesgefsedfe
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-BlockEvents.rightClicked(
-  VILLAGE_MARKET_BLOCK_ID as any,
-  (event: $BlockRightClickedKubeEvent) => {
-    if (!isMainHand(String(event.hand))) return;
-    if (event.level.isClientSide()) return;
+BlockEvents.rightClicked(VILLAGE_MARKET_BLOCK_ID, (event) => {
+  if (!isMainHand(String(event.hand))) return;
+  if (event.level.isClientSide()) return;
 
-    const state = getRuntimeState(event.server);
-    const market = addOrGetVillageMarket(event.server, event.block);
-    const payoutInventory = getRelativeInventory(event.block, 0, -1, 0);
-    const tokenCount = payoutInventory
-      ? countDispatchTokens(payoutInventory)
-      : 0;
+  const state = getRuntimeState(event.server);
+  const market = addOrGetVillageMarket(event.server, event.block);
+  const payoutInventory = getRelativeInventory(event.block, 0, -1, 0);
+  const tokenCount = payoutInventory ? countDispatchTokens(payoutInventory) : 0;
 
-    if (market.orders.length === 0) {
-      refreshVillageOrders(market, Math.max(1, 1 + market.backlogRefreshes));
-      market.backlogRefreshes = 0;
-      market.lastRefreshTick = state.tick;
-      persistRuntimeState(event.server);
-    }
+  if (market.orders.length === 0) {
+    refreshVillageOrders(market, Math.max(1, 1 + market.backlogRefreshes));
+    market.backlogRefreshes = 0;
+    market.lastRefreshTick = state.tick;
+    persistRuntimeState(event.server);
+  }
 
-    event.player.tell(Text.gold(`[Logistica] Village market ${market.key}`));
-    event.player.tell(
-      Text.gray(
-        `Input above: ${describeInventoryPresent(event.block, 0, 1, 0)} | payout/token buffer below: ${describeInventoryPresent(event.block, 0, -1, 0)} (${tokenCount})`,
-      ),
-    );
-    event.player.tell(
-      Text.gray(
-        `Pending payout: ${market.pendingPayout} Spurs | total purchased: ${market.totalPurchased}`,
-      ),
-    );
-    showVillageOrders(event.player, market);
-    event.player.tell(
-      Text.darkGray(
-        "Deliver requested items into inventory above. Tokens below force immediate order refresh.",
-      ),
-    );
-  },
-);
+  event.player.tell({
+    text: `[Logistica] Village market ${market.key}`,
+    color: "gold",
+  });
+  event.player.tell({
+    text: `Input above: ${describeInventoryPresent(event.block, 0, 1, 0)} | payout/token buffer below: ${describeInventoryPresent(event.block, 0, -1, 0)} (${tokenCount})`,
+    color: "gray",
+  });
+  event.player.tell({
+    text: `Pending payout: ${market.pendingPayout} Spurs | total purchased: ${market.totalPurchased}`,
+    color: "gray",
+  });
+  showVillageOrders(event.player, market);
+  event.player.tell({
+    text: "Deliver requested items into inventory above. Tokens below force immediate order refresh.",
+    color: "dark_gray",
+  });
+});

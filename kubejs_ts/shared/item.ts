@@ -1,4 +1,4 @@
-import type { ItemId, TagId } from "kubejs_ts/types";
+import type { ItemId, TagId } from "kubejs_ts/types/index";
 import type { Item } from "kubejs_ts/types/item";
 import { clearObject } from ".";
 import {
@@ -8,9 +8,8 @@ import {
   SPECIFIC_TAG_VALUES,
   TagValues,
 } from "./config/economy";
-import { $InventoryKJS } from "dev.latvian.mods.kubejs.core.InventoryKJS";
 import { toPlainNumber } from "./math";
-import { $ItemStack$$Type } from "net.minecraft.world.item.ItemStack";
+import { $InventoryKJS } from "@package/dev/latvian/mods/kubejs/core";
 
 export const DEFAULT_ROOT_ITEM_VALUE = 25;
 export const MIN_MEANINGFUL_ITEM_VALUE = 5;
@@ -31,35 +30,33 @@ export const EXCLUDED_ITEM_KEYWORDS = [
 ];
 
 export function loadItems() {
-  console.info("[Economy] Collecting items...");
+  console.infof("[Economy] Collecting items...");
   clearObject(global.items);
   clearObject(global.tags);
 
   Item.getList().forEach((itemStack) => {
     const javaItem = itemStack.getItem();
-    if (!isItemId(javaItem.id)) return;
+    const javaItemId = javaItem.getId() as ItemId;
+    if (!isItemId(javaItemId)) return;
 
     const tags: TagId[] = [];
     javaItem.tags.forEach((tagResourceLocation) => {
       const tag =
-        `#${tagResourceLocation.namespace as string}:${tagResourceLocation.path as string}` as TagId;
+        `#${tagResourceLocation.namespace}:${tagResourceLocation.path}` as TagId;
       tags.push(tag);
-      if (
-        global.tags[tag] &&
-        !global.tags[tag].includes(javaItem.id as ItemId)
-      ) {
-        global.tags[tag].push(javaItem.id as ItemId);
+      if (global.tags[tag] && !global.tags[tag].includes(javaItemId)) {
+        global.tags[tag].push(javaItemId);
       } else {
-        global.tags[tag] = [javaItem.id];
+        global.tags[tag] = [javaItemId];
       }
     });
 
     const item: Item = {
-      id: javaItem.id,
-      name: javaItem.id,
+      id: javaItemId,
+      name: javaItem.getName({ id: javaItemId, count: 1 }).getString(),
       blockTags: [] as TagId[],
       itemTags: tags,
-      kind: determineItemKind(javaItem.id),
+      kind: determineItemKind(javaItemId),
       recipes: {
         asInput: [],
         asOutput: [],
@@ -118,12 +115,12 @@ export function loadItems() {
 
   JsonIO.write(
     "kubejs/exported/server/items.json",
-    JSON.parse(JSON.stringify(global.items, null, 2)) as typeof global.items,
+    JSON.parse(JSON.stringify(global.items, null, 2)),
   );
 
   JsonIO.write(
     "kubejs/exported/server/tags.json",
-    JSON.parse(JSON.stringify(global.tags, null, 2)) as typeof global.tags,
+    JSON.parse(JSON.stringify(global.tags, null, 2)),
   );
 }
 
@@ -131,7 +128,7 @@ export function getAllItemIds(): ItemId[] {
   return Object.keys(global.items) as ItemId[];
 }
 
-export function getItem(id: ItemId) {
+export function getItem(id: ItemId): Item | undefined {
   if (!isItemId(id))
     throw new Error(`Expected item ID ('namespace:item'), got ${String(id)}`);
 
@@ -164,6 +161,12 @@ export function isItemId(id: string): id is ItemId {
   return true;
 }
 
+export function itemId(id: string): ItemId {
+  if (!id.includes(":")) id = `minecraft:${id.replace("#", "")}`;
+  if (isItemId(id)) return id;
+  throw new Error(`Expected item ID ('namespace:item'), got ${id}`);
+}
+
 export function isTagId(id: string): boolean {
   if (id.startsWith("#")) return true;
   return false;
@@ -186,7 +189,7 @@ export function isTag(tag: string): tag is TagId {
 
 export function tagId(id: string): TagId {
   if (!id.includes(":")) id = `minecraft:${id.replace("#", "")}`;
-  if (isTag(id)) return id as TagId;
+  if (isTag(id)) return id;
   if (isTag(`#${id}`)) return `#${id}` as TagId;
 
   throw new Error(
@@ -200,7 +203,7 @@ export function hasItems(tag: TagId) {
 }
 
 export function getItems(tag: TagId) {
-  if (hasItems(tag)) return global.tags[tag] as ItemId[];
+  if (hasItems(tag)) return global.tags[tag];
   return [];
 }
 
@@ -372,8 +375,8 @@ export function getStackItemIds(id: string): ItemId[] {
 
   Object.values(global.items).forEach((item) => {
     if (
-      item.itemTags.includes(normalized as TagId) ||
-      item.blockTags.includes(normalized as TagId)
+      item.itemTags.includes(normalized) ||
+      item.blockTags.includes(normalized)
     ) {
       result.push(item.id);
     }
@@ -418,12 +421,15 @@ export function insertItem(
 ): number {
   if (amount <= 0) return 0;
 
-  const stack = Item.of(itemId as $ItemStack$$Type, amount);
+  const stack = Item.of(itemId, amount);
   const remaining = inventory.insertItem(
-    stack as unknown as $ItemStack$$Type,
+    {
+      id: itemId,
+      count: stack.getCount(),
+    },
     false,
   );
-  const leftover = toPlainNumber(remaining?.count, 0);
+  const leftover = toPlainNumber(remaining.getCount(), 0);
 
   return Math.max(0, amount - leftover);
 }
@@ -435,7 +441,7 @@ export function countItem(inventory: $InventoryKJS, itemId: ItemId): number {
     const stack = inventory.getStackInSlot(slot);
     if (!stack || stack.empty) continue;
     if (stack.id !== itemId) continue;
-    total += toPlainNumber(stack.count, 0);
+    total += toPlainNumber(stack.getCount(), 0);
   }
 
   return total;
@@ -458,12 +464,15 @@ export function extractItem(
     if (!stack || stack.empty) continue;
     if (stack.id !== itemId) continue;
 
-    const slotCount = toPlainNumber(stack.count, 0);
+    const slotCount = toPlainNumber(stack.getCount(), 0);
     if (slotCount <= 0) continue;
 
     const take = Math.min(remaining, slotCount);
-    stack.count = slotCount - take;
-    inventory.setStackInSlot(slot, stack as unknown as $ItemStack$$Type);
+    stack.setCount(slotCount - take);
+    inventory.setStackInSlot(slot, {
+      id: stack.id,
+      count: stack.getCount(),
+    });
 
     extracted += take;
     remaining -= take;

@@ -3,18 +3,10 @@ import { ItemId } from "kubejs_ts/types";
 
 ItemEvents.modifyTooltips((event) => {
   const costs = global.economyItemCosts;
-
-  if (costs === undefined) {
-    console.warn(
-      "[ItemCost] economyItemCosts is not ready; no price tooltips registered",
-    );
-    return;
-  }
-
-  const itemIds = Object.keys(costs);
+  const itemIds = Object.keys(costs) as ItemId[];
 
   itemIds.forEach((itemId) => {
-    const item = getItem(itemId as ItemId);
+    const item = getItem(itemId);
     const entry = costs[itemId];
 
     if (!item) return;
@@ -26,13 +18,29 @@ ItemEvents.modifyTooltips((event) => {
     }
 
     //event.(itemId as any);
-    event.modify({ item: itemId as any }, { shift: "false" }, (tooltip) => {
-      tooltip.add(Text.gold(`Sell: ${entry.sellPrice}¤`));
+    event.modify(itemId, { shift: "false" }, (tooltip) => {
+      tooltip.add([
+        {
+          text: `Sell: ${entry.sellPrice}¤`,
+          color: "gold",
+        },
+      ]);
     });
-    event.modify({ item: itemId as any }, { shift: "true" }, (tooltip) => {
-      tooltip.add(Text.gold(`Sell: ${entry.sellPrice}¤`));
-      tooltip.add(Text.gray(`Buy: ${entry.buyPrice}¤`));
-      tooltip.add(Text.darkGray(`Value: ${entry.value.toFixed(2)}`));
+    event.modify(itemId, { shift: "true" }, (tooltip) => {
+      tooltip.add([
+        {
+          text: `Sell: ${entry.sellPrice}¤`,
+          color: "gold",
+        },
+        {
+          text: `Buy: ${entry.buyPrice}¤`,
+          color: "light_gray_dye",
+        },
+        {
+          text: `Value: ${entry.value.toFixed(2)}`,
+          color: "gray",
+        },
+      ]);
       let value = 0;
       item.valueChanges.forEach((change) => {
         let changeText = "";
@@ -52,13 +60,14 @@ ItemEvents.modifyTooltips((event) => {
             value -= change.amount;
             break;
         }
-        tooltip.add(
-          Text.darkGray(
-            `${change.type} (${change.by}): ${changeText}${change.amount.toFixed(2)} (${value.toFixed(
+        tooltip.add([
+          {
+            text: `${change.type} (${change.by}): ${changeText}${change.amount.toFixed(2)} (${value.toFixed(
               2,
             )})`,
-          ),
-        );
+            color: "dark_gray",
+          },
+        ]);
       });
     });
   });

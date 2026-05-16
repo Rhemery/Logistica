@@ -1,10 +1,12 @@
-import { $LevelBlock } from "dev.latvian.mods.kubejs.level.LevelBlock";
-import { $Player } from "net.minecraft.world.entity.player.Player";
-import { $Level } from "net.minecraft.world.level.Level";
 import { toPlainNumber } from "./math";
-import { $MinecraftServer } from "net.minecraft.server.MinecraftServer";
+
 import { MONEY } from "./config/economy";
 import { ItemStack } from "kubejs_ts/types/item";
+import { $Player } from "@package/net/minecraft/world/entity/player";
+import { $LevelBlock } from "@package/dev/latvian/mods/kubejs/level";
+import { $MinecraftServer } from "@package/net/minecraft/server";
+import { $ServerLevel } from "@package/net/minecraft/server/level";
+import { $Level } from "@package/net/minecraft/world/level";
 
 export function percentLabel(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -20,7 +22,7 @@ export function isMainHand(hand: string): boolean {
 }
 
 export function getPlayerStandingBlock(
-  level: $Level,
+  level: $ServerLevel | $Level,
   player: $Player,
 ): $LevelBlock | null {
   if (!level || !player) return null;

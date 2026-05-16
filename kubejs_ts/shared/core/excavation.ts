@@ -1,4 +1,3 @@
-import { $MinecraftServer } from "net.minecraft.server.MinecraftServer";
 import {
   getControllerBlock,
   getPlayerStandingBlock,
@@ -19,7 +18,7 @@ import {
   MAX_TOKENS_PER_STEP,
 } from "./hub";
 import { insertItem } from "../item";
-import { chunkKey, resolveBiomeIdAtChunk, toChunkCoord } from "./chunk";
+import { chunkKey, resolveBiomeIdAtChunk, toChunkCoord } from "../chunk";
 import {
   biomeMatchesKeywords,
   clamp,
@@ -35,15 +34,12 @@ import {
   persistRuntimeState,
 } from "../runtime";
 import { ItemId } from "kubejs_ts/types";
-import { $LevelBlock } from "dev.latvian.mods.kubejs.level.LevelBlock";
 import { removeStation, toStationRef } from "../station";
-import { $Player } from "net.minecraft.world.entity.player.Player";
 import { buildMarketEntries } from "../market";
-import { $ServerLevel } from "net.minecraft.server.level.ServerLevel";
-import { $BlockPlacedKubeEvent } from "dev.latvian.mods.kubejs.block.BlockPlacedKubeEvent";
-import { $BlockBrokenKubeEvent } from "dev.latvian.mods.kubejs.block.BlockBrokenKubeEvent";
-import { $BlockRightClickedKubeEvent } from "dev.latvian.mods.kubejs.block.BlockRightClickedKubeEvent";
-import { $ItemClickedKubeEvent } from "dev.latvian.mods.kubejs.item.ItemClickedKubeEvent";
+import { $MinecraftServer } from "@package/net/minecraft/server";
+import { $LevelBlock } from "@package/dev/latvian/mods/kubejs/level";
+import { $Player } from "@package/net/minecraft/world/entity/player";
+import { $ServerLevel } from "@package/net/minecraft/server/level";
 
 export const MINING_OUTPOST_BLOCK_ID = "kubejs:mining_outpost_controller";
 export const EXCAVATION_SURVEY_ITEM_ID =
@@ -164,7 +160,7 @@ export function handleMiningOutpost(
   tick: number,
 ): void {
   const block = getControllerBlock(server, outpost);
-  if (!block || String(block.getId()) !== MINING_OUTPOST_BLOCK_ID) {
+  if (!block || block.getId() !== MINING_OUTPOST_BLOCK_ID) {
     outpost.unloadedCycles += 1;
     outpost.backlogCycles = Math.min(
       outpost.maxBacklogCycles,
@@ -394,29 +390,32 @@ export function showExcavationSurvey(
   player: $Player,
   profile: ExcavationChunkState,
 ): void {
-  player.tell(
-    Text.gold(
-      `[Logistica] Excavation chunk ${profile.dimension} @ (${profile.chunkX}, ${profile.chunkZ})`,
-    ),
-  );
-  player.tell(
-    Text.gray(
-      `Biome: ${profile.biomeId} | richness: ${profile.richness.toFixed(2)}`,
-    ),
-  );
+  player.tell({
+    text: `[Logistica] Excavation chunk ${profile.dimension} @ (${profile.chunkX}, ${profile.chunkZ})`,
+    color: "gold",
+  });
+  player.tell({
+    text: `Biome: ${profile.biomeId} | richness: ${profile.richness.toFixed(2)}`,
+    color: "gray",
+  });
 
   if (profile.empty || profile.resources.length === 0) {
-    player.tell(Text.red("No extractable resources detected in this chunk."));
+    player.tell({
+      text: "No extractable resources detected in this chunk.",
+      color: "red",
+    });
     return;
   }
 
-  player.tell(Text.aqua("Resource distribution:"));
+  player.tell({
+    text: "Resource distribution:",
+    color: "aqua",
+  });
   for (const resource of profile.resources) {
-    player.tell(
-      Text.gray(
-        `- ${resource.itemId}: ${percentLabel(resource.percent)} (weight ${resource.weight.toFixed(2)})`,
-      ),
-    );
+    player.tell({
+      text: `- ${resource.itemId}: ${percentLabel(resource.percent)} (weight ${resource.weight.toFixed(2)})`,
+      color: "gray",
+    });
   }
 }
 
@@ -479,42 +478,17 @@ export function resolveDimensionSeed(
   return (baseSeed ^ hashString32(dimension)) >>> 0;
 }
 
-// @ts-expect-error ddddddddddd
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-BlockEvents.placed(MINING_OUTPOST_BLOCK_ID, (event: $BlockPlacedKubeEvent) => {
+BlockEvents.placed(MINING_OUTPOST_BLOCK_ID, (event) => {
   if (event.level.isClientSide()) return;
   addOrGetMiningOutpost(event.server, event.block);
 });
 
-// @ts-expect-error ddddddddddd
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-BlockEvents.broken(MINING_OUTPOST_BLOCK_ID, (event: $BlockBrokenKubeEvent) => {
+BlockEvents.broken(MINING_OUTPOST_BLOCK_ID, (event) => {
   if (event.level.isClientSide()) return;
   removeStation(event.server, toStationRef(event.block).key);
 });
 
-// @ts-expect-error ddddddddddd
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-ItemEvents.rightClicked(
-  EXCAVATION_SURVEY_ITEM_ID,
-  (event: $ItemClickedKubeEvent) => {
-    if (event.level.isClientSide()) return;
-    if (!isMainHand(String(event.hand))) return;
-
-    const playerBlock = getPlayerStandingBlock(event.level, event.player);
-    if (!playerBlock) return;
-
-    const profile = getOrCreateExcavationChunkAtBlock(
-      event.server,
-      playerBlock,
-    );
-    showExcavationSurvey(event.player, profile);
-  },
-);
-
-// @ts-expect-error ddddddddddd
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-BlockEvents.rightClicked((event: $BlockRightClickedKubeEvent) => {
+BlockEvents.rightClicked((event) => {
   if (event.level.isClientSide()) return;
   if (!isMainHand(String(event.hand))) return;
   if (event.item.id !== EXCAVATION_SURVEY_ITEM_ID) return;
@@ -524,51 +498,57 @@ BlockEvents.rightClicked((event: $BlockRightClickedKubeEvent) => {
   event.cancel();
 });
 
-// @ts-expect-error ddddddddddd
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
-BlockEvents.rightClicked(
-  MINING_OUTPOST_BLOCK_ID,
-  (event: $BlockRightClickedKubeEvent) => {
-    if (!isMainHand(String(event.hand))) return;
-    if (event.level.isClientSide()) return;
+BlockEvents.rightClicked(MINING_OUTPOST_BLOCK_ID, (event) => {
+  if (!isMainHand(String(event.hand))) return;
+  if (event.level.isClientSide()) return;
 
-    const outpost = addOrGetMiningOutpost(event.server, event.block);
-    const excavationProfile = getOrCreateExcavationChunkAtBlock(
-      event.server,
-      event.block,
-    );
-    const tokenInventory = getRelativeInventory(event.block, 0, -1, 0);
-    const tokenCount = tokenInventory ? countDispatchTokens(tokenInventory) : 0;
+  const outpost = addOrGetMiningOutpost(event.server, event.block);
+  const excavationProfile = getOrCreateExcavationChunkAtBlock(
+    event.server,
+    event.block,
+  );
+  const tokenInventory = getRelativeInventory(event.block, 0, -1, 0);
+  const tokenCount = tokenInventory ? countDispatchTokens(tokenInventory) : 0;
 
-    event.player.tell(Text.gold(`[Logistica] Mining outpost ${outpost.key}`));
-    event.player.tell(
-      Text.gray(
-        `Vault above: ${describeInventoryPresent(event.block, 0, 1, 0)} | token buffer below: ${describeInventoryPresent(event.block, 0, -1, 0)} (${tokenCount})`,
-      ),
-    );
-    event.player.tell(
-      Text.gray(
-        `Backlog cycles: ${outpost.backlogCycles} | total produced: ${outpost.totalProduced}`,
-      ),
-    );
-    if (excavationProfile.empty) {
-      event.player.tell(
-        Text.red("Chunk profile: no extractable resources in this chunk."),
-      );
-    } else {
-      const top = excavationProfile.resources[0];
-      if (top) {
-        event.player.tell(
-          Text.gray(
-            `Chunk profile top resource: ${top.itemId} (${percentLabel(top.percent)})`,
-          ),
-        );
-      }
+  event.player.tell({
+    text: `[Logistica] Mining outpost ${outpost.key}`,
+    color: "gold",
+  });
+  event.player.tell({
+    text: `Vault above: ${describeInventoryPresent(event.block, 0, 1, 0)} | token buffer below: ${describeInventoryPresent(event.block, 0, -1, 0)} (${tokenCount})`,
+    color: "gray",
+  });
+  event.player.tell({
+    text: `Backlog cycles: ${outpost.backlogCycles} | total produced: ${outpost.totalProduced}`,
+    color: "gray",
+  });
+  if (excavationProfile.empty) {
+    event.player.tell({
+      text: "Chunk profile: no extractable resources in this chunk.",
+      color: "red",
+    });
+  } else {
+    const top = excavationProfile.resources[0];
+    if (top) {
+      event.player.tell({
+        text: `Chunk profile top resource: ${top.itemId} (${percentLabel(top.percent)})`,
+        color: "gray",
+      });
     }
-    event.player.tell(
-      Text.darkGray(
-        `Usage: put ${DISPATCH_TOKEN_NAME} papers below this controller to run extra mining cycles instantly.`,
-      ),
-    );
-  },
-);
+  }
+  event.player.tell({
+    text: `Usage: put ${DISPATCH_TOKEN_NAME} papers below this controller to run extra mining cycles instantly.`,
+    color: "dark_gray",
+  });
+});
+
+ItemEvents.rightClicked(EXCAVATION_SURVEY_ITEM_ID, (event) => {
+  if (event.level.isClientSide()) return;
+  if (!isMainHand(String(event.hand))) return;
+
+  const playerBlock = getPlayerStandingBlock(event.level, event.player);
+  if (!playerBlock) return;
+
+  const profile = getOrCreateExcavationChunkAtBlock(event.server, playerBlock);
+  showExcavationSurvey(event.player, profile);
+});

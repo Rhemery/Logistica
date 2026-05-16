@@ -1,10 +1,8 @@
-import { $InventoryKJS } from "dev.latvian.mods.kubejs.core.InventoryKJS";
+import { $InventoryKJS } from "@package/dev/latvian/mods/kubejs/core";
+import { $Player } from "@package/net/minecraft/world/entity/player";
+import { itemId } from "kubejs_ts/shared/item";
 import { compressCoins } from "kubejs_ts/shared/utils";
 import { MarketEntry } from "kubejs_ts/types/logistics";
-import { $ResourceKey$$Type } from "net.minecraft.resources.ResourceKey";
-import { $Player } from "net.minecraft.world.entity.player.Player";
-import { $ItemStack$$Type } from "net.minecraft.world.item.ItemStack";
-import { $Block } from "net.minecraft.world.level.block.Block";
 
 // Change this per block later if you create more terminals.
 // For now, one terminal = mining depot.
@@ -14,8 +12,8 @@ function getMarketEntries() {
   const entries = global.marketEntries;
 
   if (!entries) {
-    console.warn("[Market] global.marketEntries is missing");
-    return {};
+    console.warnf("[Market] global.marketEntries is missing");
+    return {} as typeof entries;
   }
 
   return entries;
@@ -39,13 +37,13 @@ function trySellInventory(inv: $InventoryKJS, player: $Player, market: string) {
 
     if (!stack || stack.empty) continue;
 
-    const itemId = stack.id;
-    const entry = marketEntries[itemId];
+    const id = itemId(stack.id);
+    const entry = marketEntries[id];
     if (!entry) continue;
 
     if (!itemAcceptedAtMarket(entry, market)) continue;
 
-    const count = stack.count;
+    const count = stack.getCount();
     const priceEach = Math.max(1, Math.floor(entry.sellPrice || 0));
     const stackValue = count * priceEach;
 
@@ -54,51 +52,49 @@ function trySellInventory(inv: $InventoryKJS, player: $Player, market: string) {
     total += stackValue;
     soldStacks++;
 
-    stack.count = 0;
+    stack.setCount(0);
     inv.setStackInSlot(slot, stack as any);
   }
 
   if (total > 0) {
     const money = compressCoins(total);
     money.forEach((coin) => {
-      player.give(
-        Item.of(
-          coin.id as $ItemStack$$Type,
-          coin.count,
-        ) as unknown as $ItemStack$$Type,
-      );
+      player.give({
+        id: coin.id,
+        count: coin.count,
+      });
     });
-    player.tell(Text.green(`Sold ${soldStacks} stacks for ${total} Spurs.`));
+    player.tell({
+      text: `Sold ${soldStacks} stacks for ${total} Spurs.`,
+      color: "green",
+    });
   } else {
-    player.tell(
-      Text.yellow(`This depot did not accept any items in the input barrel.`),
-    );
+    player.tell({
+      text: `This depot did not accept any items in the input barrel.`,
+      color: "yellow",
+    });
   }
 }
 
-BlockEvents.rightClicked(
-  "kubejs:market_terminal" as $ResourceKey$$Type<$Block>,
-  (event) => {
-    if (event.hand !== ("MAIN_HAND" as any)) return;
-    if (event.level.isClientSide()) return;
+BlockEvents.rightClicked("kubejs:market_terminal", (event) => {
+  if (event.hand !== ("MAIN_HAND" as any)) return;
+  if (event.level.isClientSide()) return;
 
-    const player = event.player;
-    const block = event.block;
+  const player = event.player;
+  const block = event.block;
 
-    // Barrel/chest directly above terminal.
-    const inputBlock = block.offset(0, 1, 0);
+  // Barrel/chest directly above terminal.
+  const inputBlock = block.offset(0, 1, 0);
 
-    if (!inputBlock || !inputBlock.getInventory()) {
-      player.tell(
-        Text.red(
-          "No input inventory above terminal. Put a barrel/chest above it.",
-        ),
-      );
-      return;
-    }
+  if (!inputBlock || !inputBlock.getInventory()) {
+    player.tell({
+      text: "No input inventory above terminal. Put a barrel/chest above it.",
+      color: "red",
+    });
+    return;
+  }
 
-    trySellInventory(inputBlock.getInventory(), player, TERMINAL_MARKET);
+  trySellInventory(inputBlock.getInventory(), player, TERMINAL_MARKET);
 
-    event.cancel();
-  },
-);
+  event.cancel();
+});

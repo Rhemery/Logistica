@@ -1,4 +1,4 @@
-import { $MinecraftServer } from "net.minecraft.server.MinecraftServer";
+import { $MinecraftServer } from "@package/net/minecraft/server";
 
 export function chunkKey(
   dimension: string,
@@ -25,13 +25,11 @@ export function resolveBiomeIdAtChunk(
   chunkZ: number,
 ): string {
   const level = server.getLevel(dimension);
-  if (!level) return "minecraft:unknown";
 
   const sampleX = chunkX * 16 + 8;
   const sampleZ = chunkZ * 16 + 8;
   const sampleY = 64;
   const block = level.getBlock(sampleX, sampleY, sampleZ);
 
-  if (!block) return "minecraft:unknown";
   return String(block.getBiomeId());
 }

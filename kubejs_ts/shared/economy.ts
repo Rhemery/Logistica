@@ -16,7 +16,7 @@ import {
 import { applyTagValueModifier } from "./config/economy";
 
 export function priceItems() {
-  console.info("[Economy] Pricing items...");
+  console.infof("[Economy] Pricing items...");
   clearObject(global.economyItemCosts);
 
   function resolveInputValue(
@@ -80,7 +80,7 @@ export function priceItems() {
         by: input.id,
         type: "Ingredient",
         change: ItemValueOperation.add,
-        amount: value * (input.count ?? 1),
+        amount: value * input.count,
       });
     }
   }
@@ -118,7 +118,7 @@ export function priceItems() {
         Object.values(recipe.inputs).forEach((input) => {
           const inputValue = resolveInputValue(input, cache);
           cachedItem.inputs[input.id] = inputValue;
-          value += inputValue * (input.count ?? 1);
+          value += inputValue * input.count;
         });
         if (value > 0) {
           if (cachedItem.needsUpdate || cachedItem.value == 0) {
@@ -140,10 +140,10 @@ export function priceItems() {
     const missingPricing = Object.entries(cache).filter(
       (entry) => entry[1].value == 0,
     );
-    console.info(`[Economy] ${missingPricing.length} items without value`);
+    console.infof(`[Economy] ${missingPricing.length} items without value`);
     JsonIO.write(
       "kubejs/exported/server/cache.json",
-      JSON.parse(JSON.stringify(cache, null, 2)) as typeof cache,
+      JSON.parse(JSON.stringify(cache, null, 2)),
     );
     JsonIO.write(
       "kubejs/exported/server/price_missing.json",
@@ -154,15 +154,14 @@ export function priceItems() {
             tags: missingPricing.map(([id]) => {
               return {
                 id,
-                tags: (global.items[id as keyof typeof global.items] as Item)
-                  .itemTags,
+                tags: global.items[id as keyof typeof global.items].itemTags,
               };
             }),
           },
           null,
           2,
         ),
-      ) as typeof global.items,
+      ),
     );
   }
 
@@ -215,9 +214,7 @@ export function priceItems() {
 
   JsonIO.write(
     "kubejs/exported/server/economy_cost_items.json",
-    JSON.parse(
-      JSON.stringify(global.economyItemCosts, null, 2),
-    ) as typeof global.economyItemCosts,
+    JSON.parse(JSON.stringify(global.economyItemCosts, null, 2)),
   );
 }
 

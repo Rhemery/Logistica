@@ -1,4 +1,4 @@
-import { ItemId } from "kubejs_ts/types";
+import { ItemId } from "kubejs_ts/types/index";
 import { PropagationConfig } from "kubejs_ts/types/economy";
 
 export type TagValues = Record<

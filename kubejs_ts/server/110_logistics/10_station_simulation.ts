@@ -1,41 +1,18 @@
-import { normalizeChunkKey } from "kubejs_ts/shared/core/chunk";
 import {
   ensureMarketEntries,
-  EXCAVATION_RICHNESS_MAX,
-  EXCAVATION_RICHNESS_MIN,
   handleMiningOutpost,
 } from "kubejs_ts/shared/core/excavation";
-import {
-  handleHubDispatch,
-  HUB_DEFAULT_THRESHOLD,
-  HUB_DEFAULT_WATCH_ITEMS,
-  HUB_INACTIVITY_TICKS,
-} from "kubejs_ts/shared/core/hub";
-import {
-  handleVillageMarket,
-  VILLAGE_REFRESH_TICKS,
-} from "kubejs_ts/shared/core/village";
-import { clamp, toPlainNumber } from "kubejs_ts/shared/math";
+import { handleHubDispatch } from "kubejs_ts/shared/core/hub";
+import { handleVillageMarket } from "kubejs_ts/shared/core/village";
+import { toPlainNumber } from "kubejs_ts/shared/math";
 import {
   getRuntimeState,
   persistRuntimeState,
   resetStateCache,
   RUNTIME_STATE_SAVE_INTERVAL_TICKS,
-  runtimeStateCache,
 } from "kubejs_ts/shared/runtime";
-import type { ItemId } from "kubejs_ts/types";
-import type {
-  ExcavationChunkState,
-  ExcavationResourceShare,
-  HubDispatchState,
-  LogisticsRuntimeState,
-  MarketEntry,
-  MiningOutpostState,
-  VillageDemandOrder,
-  VillageMarketState,
-} from "kubejs_ts/types/logistics";
-import type { $CompoundTag } from "net.minecraft.nbt.CompoundTag";
-import type { $MinecraftServer } from "net.minecraft.server.MinecraftServer";
+
+import type { LogisticsRuntimeState } from "kubejs_ts/types/logistics";
 
 const SIM_INTERVAL_TICKS = 20 * 10;
 
@@ -70,7 +47,7 @@ function writeRuleSnapshot(): void {
         "hub threshold/inactivity + remote chunk-unloaded fallback buffer",
     },
     hardRules: HARD_RULES,
-  });
+  } as any);
 }
 
 ServerEvents.loaded((event) => {
@@ -78,7 +55,7 @@ ServerEvents.loaded((event) => {
   getRuntimeState(event.server);
   ensureMarketEntries();
   writeRuleSnapshot();
-  console.info("[Logistica] MVP station simulation loaded.");
+  console.infof("[Logistica] MVP station simulation loaded.");
 });
 
 ServerEvents.unloaded((event) => {
@@ -86,7 +63,7 @@ ServerEvents.unloaded((event) => {
   persistRuntimeState(event.server);
   JsonIO.write(
     "kubejs/exported/server/logistica_runtime_state.json",
-    JSON.parse(JSON.stringify(state, null, 2)) as LogisticsRuntimeState,
+    JSON.parse(JSON.stringify(state, null, 2)),
   );
 });
 

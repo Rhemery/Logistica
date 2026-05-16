@@ -1,6 +1,6 @@
 import type { ItemId, TagId } from ".";
-import type { RecipeTreeItem } from "./recipe";
-import type { MaterialForm } from "./material";
+import type { Recipe, RecipeTreeItem } from "./recipe";
+import type { Material, MaterialForm } from "./material";
 import { ItemValueOperation } from "kubejs_ts/shared/item";
 import { TagValueModifiers } from "kubejs_ts/shared/config/economy";
 
@@ -10,12 +10,7 @@ export type Item = {
   id: ItemId;
   name: string;
   value: number;
-  valueChanges: {
-    by: string;
-    type: string;
-    change: ItemValueOperation;
-    amount: number;
-  }[];
+  valueChanges: ValueChanges[];
   valueModifiers: TagValueModifiers[];
   kind: "resource" | "product" | null;
   itemTags: TagId[];
@@ -25,6 +20,13 @@ export type Item = {
     asInput: string[];
     asOutput: string[];
   };
+};
+
+export type ValueChanges = {
+  by: string;
+  type: string;
+  change: ItemValueOperation;
+  amount: number;
 };
 
 export type ItemCostEntry = {
@@ -43,7 +45,7 @@ export type Tag = {
 export type ItemRecipe = {
   ingredients: ItemStack[];
   results: ItemStack[];
-  recipe: UnknownRecipe;
+  recipe: Recipe;
 };
 
 export type ItemStack = {
@@ -58,7 +60,7 @@ export type ItemStackRecipe = Omit<ItemStack, "id"> & {
 };
 
 export type ScoreTable = {
-  item: ItemID;
+  item: ItemId;
   value: number;
   components: ScoreTableItemComponent[];
 }[];

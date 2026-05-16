@@ -1,0 +1,62 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "plugins": [],
+    "checkJs": false,
+
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "useUnknownInCatchVariables": true,
+
+    "noEmit": true,
+    "skipLibCheck": true,
+
+    "lib": [
+      "ES2022"
+    ],
+    "paths": {
+      "kubejs_ts/types": [
+        "../types"
+      ],
+      "kubejs_ts/types/*": [
+        "../types/*"
+      ],
+      "kubejs_ts/shared/*": [
+        "../shared/*"
+      ],
+      "@package": [
+        "../../.probe/@package"
+      ],
+      "@package/*": [
+        "../../.probe/@package/*"
+      ],
+      "@special": [
+        "../../.probe/@special"
+      ],
+      "@special/*": [
+        "../../.probe/@special/*"
+      ]
+    },
+  },
+  "include": [
+    "./**/*.ts",
+    "./**/*.d.ts",
+    "../../.probe/@package/**/*.d.ts",
+    "../../.probe/@special/**/*.d.ts"
+  ]
+}

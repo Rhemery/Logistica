@@ -1,12 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import type { $KubeRecipe } from "dev.latvian.mods.kubejs.recipe.KubeRecipe";
-import { $Ingredient$$Type } from "net.minecraft.world.item.crafting.Ingredient";
-import { clamp } from "./math";
-import { DeepSearchObject, ItemId, TagId } from "kubejs_ts/types";
-import { $RecipeFilter$$Type } from "dev.latvian.mods.kubejs.recipe.filter.RecipeFilter";
-import { $ItemStack$$Type } from "net.minecraft.world.item.ItemStack";
-import { isItemId, isTagId } from "./item";
-import { Material } from "kubejs_ts/types/material";
+import { DeepSearchObject } from "kubejs_ts/types/index";
 
 export const ITEM_GROUP_NAMESPACE = ["c", "neoforge"] as const;
 
@@ -27,8 +19,6 @@ export const SMELTING_TYPES: string[] = [
   "minecraft:blasting",
   "create:fan_blasting",
 ];
-
-const itemGroupCache: Record<string, ItemId[]> = {};
 
 export function unique<T>(list: T[]) {
   return Array.from(new Set<T>(list.filter(Boolean)));
@@ -123,7 +113,7 @@ export function flat<T>(array: T[][], depth = 1): T[] {
 
   for (const el of array) {
     if (Array.isArray(el) && depth) {
-      flat(el as T[][], depth - 1).forEach((el) => flattend.push(el as T));
+      flat(el as T[][], depth - 1).forEach((el) => flattend.push(el));
     } else {
       flattend.push(el);
     }
@@ -142,22 +132,6 @@ export function getNumber(value: unknown, fallback: number): number {
   }
 
   return fallback;
-}
-
-export function itemId(id: string) {
-  if (!isItemId(id))
-    throw new Error(`Expected item ID ('namespace:item'), got ${id}`);
-
-  return id as ItemId;
-}
-
-export function tagId(tag: string) {
-  if (!isTagId(tag))
-    throw new Error(
-      `Expected tag ID ('#namespace:tag', '#namespace:category/subcategory'), got ${tag}`,
-    );
-
-  return tag as TagId;
 }
 
 export function normalizePositiveNumber(
@@ -194,7 +168,7 @@ export function tryParse(value: unknown): object | null {
   if (forcedString.startsWith("{") && forcedString.endsWith("}")) {
     if (forcedString.length == 2) return {};
     if (!forcedString.includes('"')) {
-      console.warn(
+      console.warnf(
         `[isParsableObject] Failed to parse: ${forcedString} - has values but no quotes`,
       );
     }
@@ -214,12 +188,12 @@ export function tryParse(value: unknown): object | null {
     } else {
       try {
         const stringified = (value as object).toString();
-        console.info(
+        console.infof(
           `[isParsableObject] Java object: ${stringified} - ${forcedString}`,
         );
         return tryParse(stringified);
       } catch (e) {
-        console.error(
+        console.errorf(
           `[isParsableObject] Failed to parse: ${String(e)} - checked if its java object`,
         );
         return null;

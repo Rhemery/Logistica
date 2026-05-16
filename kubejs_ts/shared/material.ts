@@ -9,11 +9,11 @@ import { ItemId } from "kubejs_ts/types";
 
 export function LoadMaterials() {
   if (Object.keys(global.items).length == 0) {
-    console.error(
+    console.errorf(
       "[Economy] LoadMaterials() depends on loadItems(), but no items found.",
     );
   }
-  console.info("[Economy] Infering materials...");
+  console.infof("[Economy] Infering materials...");
   function addMaterial(material: string, item: Item) {
     if (global.materials[material] == null) {
       global.materials[material] = {
@@ -70,9 +70,7 @@ export function LoadMaterials() {
 
   JsonIO.write(
     "kubejs/exported/server/materials.json",
-    JSON.parse(
-      JSON.stringify(global.materials, null, 2),
-    ) as typeof global.materials,
+    JSON.parse(JSON.stringify(global.materials, null, 2)),
   );
 }
 

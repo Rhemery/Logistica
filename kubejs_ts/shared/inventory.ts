@@ -1,5 +1,5 @@
-import { $InventoryKJS } from "dev.latvian.mods.kubejs.core.InventoryKJS";
-import { $LevelBlock } from "dev.latvian.mods.kubejs.level.LevelBlock";
+import { $InventoryKJS } from "@package/dev/latvian/mods/kubejs/core";
+import { $LevelBlock } from "@package/dev/latvian/mods/kubejs/level";
 
 export function getRelativeInventory(
   block: $LevelBlock,

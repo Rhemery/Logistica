@@ -1,6 +1,6 @@
-import { $LevelBlock } from "dev.latvian.mods.kubejs.level.LevelBlock";
-import { $MinecraftServer } from "net.minecraft.server.MinecraftServer";
+import { $LevelBlock } from "@package/dev/latvian/mods/kubejs/level";
 import { getRuntimeState, persistRuntimeState } from "./runtime";
+import { $MinecraftServer } from "@package/net/minecraft/server";
 
 export function stationKey(
   dimension: string,
@@ -13,9 +13,9 @@ export function stationKey(
 
 export function toStationRef(block: $LevelBlock) {
   const dimension = String(block.getDimension());
-  const x = Number(block.getX());
-  const y = Number(block.getY());
-  const z = Number(block.getZ());
+  const x = block.getX();
+  const y = block.getY();
+  const z = block.getZ();
 
   return {
     key: stationKey(dimension, x, y, z),

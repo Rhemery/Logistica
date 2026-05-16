@@ -1,11 +1,11 @@
-import type { ItemId } from "kubejs_ts/types";
-import type { IngredientCostPart, RecipeOutputPart } from "./recipe";
+import type { ItemId } from "kubejs_ts/types/index";
+import { ItemStack } from "./item";
 
 export type ProductRecipe = {
   id: string;
   type: string;
-  inputs: IngredientCostPart[];
-  outputs: RecipeOutputPart[];
+  inputs: ItemStack[];
+  outputs: ItemStack[];
 };
 
 export type ItemValueEntry = {

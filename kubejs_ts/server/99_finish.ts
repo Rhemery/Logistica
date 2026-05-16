@@ -1,12 +1,10 @@
-ServerEvents.recipes((event) => {
+ServerEvents.recipes(() => {
   JsonIO.write(
     "kubejs/exported/server/items.json",
-    JSON.parse(JSON.stringify(global.items, null, 2)) as typeof global.items,
+    JSON.parse(JSON.stringify(global.items, null, 2)),
   );
   JsonIO.write(
     "kubejs/exported/server/recipes.json",
-    JSON.parse(
-      JSON.stringify(global.recipes, null, 2),
-    ) as typeof global.recipes,
+    JSON.parse(JSON.stringify(global.recipes, null, 2)),
   );
 });

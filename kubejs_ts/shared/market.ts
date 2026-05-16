@@ -2,6 +2,7 @@ import { ItemId, TagId } from "kubejs_ts/types";
 import { Item } from "kubejs_ts/types/item";
 import { MarketEntry } from "kubejs_ts/types/logistics";
 import { clearObject } from ".";
+import { tagId } from "./item";
 
 const MINING_TAG_PARTS = [
   "ores",
@@ -48,7 +49,7 @@ function computeMarkets(itemId: ItemId, item: Item): string[] {
 
   if (
     hasTagPart(item, VILLAGE_TAG_PARTS) ||
-    hasExactTag(item, "#minecraft:villager_plantable_seeds")
+    hasExactTag(item, tagId("#minecraft:villager_plantable_seeds"))
   ) {
     markets.add("village");
   }
@@ -65,7 +66,7 @@ function computeMarkets(itemId: ItemId, item: Item): string[] {
 }
 
 export function buildMarketEntries(): Record<ItemId, MarketEntry> {
-  console.info("[Economy] Building market...");
+  console.infof("[Economy] Building market...");
   clearObject(global.marketEntries);
 
   Object.entries(global.economyItemCosts).forEach(([rawItemId, cost]) => {
@@ -88,9 +89,7 @@ export function buildMarketEntries(): Record<ItemId, MarketEntry> {
 
   JsonIO.write(
     "kubejs/exported/server/market_entries.json",
-    JSON.parse(
-      JSON.stringify(global.marketEntries, null, 2),
-    ) as typeof global.marketEntries,
+    JSON.parse(JSON.stringify(global.marketEntries, null, 2)),
   );
 
   return global.marketEntries;

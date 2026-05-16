@@ -1,4 +1,4 @@
-import type { ItemMaterialInfo, ItemStack } from "./item";
+import type { ItemMaterialInfo, ItemStack, ValueChanges } from "./item";
 
 export type ResourceLocation = `${string}:${string}`;
 export type ItemId = ResourceLocation;
@@ -755,7 +755,7 @@ export type RecipeTreeItem = {
   valueSource: "base" | "recipe" | "fallback" | "excluded" | "unknown";
   valueRecipe: number | null;
   valueTree: RecipeValueTree | null;
-  valueCalculations: ValueCalculation[];
+  valueCalculations: ValueChanges[];
   recipesAsIngredient: number[];
   recipesAsResult: number[];
 };
