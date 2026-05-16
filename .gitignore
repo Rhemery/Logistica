@@ -45,7 +45,7 @@ win_event*.txt
 hs_err_pid*.log
 imgui.ini
 config/iris.properties
-config/indigo-renderer.properties
+config/fabric/indigo-renderer.properties
 config/crash_assistant/modlist.json
 
 # ProbeJS cache
