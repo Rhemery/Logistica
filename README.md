@@ -17,6 +17,7 @@ This repository contains the authored scripts and tooling for the Logistica inst
 
 - Node.js 20+
 - npm 10+
+- TypeScript (Native Preview) extention
 
 ## Setup
 
