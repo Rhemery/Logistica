@@ -47,6 +47,20 @@ imgui.ini
 config/iris.properties
 config/fabric/indigo-renderer.properties
 config/crash_assistant/modlist.json
+dynamic-data-pack-cache/
+dynamic-resource-pack-cache/
+essential/
+xaero/
+simplebackups/
+EffekseerNativeForJava.dll
+emi.json
+observable_announce
+patchouli_data.json
+ponders_watched.json
+libpowergridNative7.dll
+sable_rapier_x86_64_windows.dll
+blueprints/
+XaeroWaypoints_*/
 
 # ProbeJS cache
 .probe/
@@ -66,3 +80,5 @@ scripts/recipe_types.json
 # CurseForge instance metadata (machine-specific paths and cache)
 minecraftinstance.json
 .curseclient
+
+.probe
