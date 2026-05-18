@@ -5,7 +5,8 @@
     "check": "npm run typecheck && npm run lint",
     "build": "node build-kubejs.mjs",
     "recipes:schema": "tsx ./scripts/create-schemas.mjs",
-    "scan:worldgen": "tsx ./scripts/scan-worldgen.ts"
+    "scan:worldgen": "tsx ./scripts/scan-worldgen.ts",
+    "export:modlist": "node ./scripts/export-modlist.cjs"
   },
   "dependencies": {},
   "devDependencies": {
