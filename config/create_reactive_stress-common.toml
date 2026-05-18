@@ -1,0 +1,21 @@
+[reactive_stress]
+	#Multiplier for Press stress calculations
+	# Default: 2.5
+	# Range: 1.0 ~ 100.0
+	Press = 2.5
+	#Multiplier for Mixer stress calculations
+	# Default: 2.0
+	# Range: 1.0 ~ 100.0
+	Mixer = 2.0
+	#Multiplier for MillStone stress calculations
+	# Default: 2.0
+	# Range: 1.0 ~ 100.0
+	MillStone = 2.0
+	#Multiplier for Saw stress calculations
+	# Default: 2.0
+	# Range: 1.0 ~ 100.0
+	Saw = 2.0
+	#Multiplier for CrushingWheel stress calculations
+	# Default: 3.0
+	# Range: 1.0 ~ 100.0
+	CrushingWheel = 3.0
