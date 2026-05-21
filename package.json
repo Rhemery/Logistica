@@ -6,9 +6,9 @@
     "build": "node build-kubejs.mjs",
     "recipes:schema": "tsx ./scripts/create-schemas.mjs",
     "scan:worldgen": "tsx ./scripts/scan-worldgen.ts",
+    "generate:textures": "tsx ./scripts/generator.ts",
     "export:modlist": "node ./scripts/export-modlist.cjs"
   },
-  "dependencies": {},
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@babel/plugin-transform-block-scoping": "^7.28.6",
@@ -25,6 +25,7 @@
     "eslint-config-prettier": "^10.1.8",
     "fast-glob": "^3.3.3",
     "globals": "^17.5.0",
+    "pngjs": "^7.0.0",
     "prettier": "^3.8.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.0"

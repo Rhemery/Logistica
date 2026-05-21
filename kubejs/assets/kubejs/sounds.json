@@ -1,0 +1,14 @@
+{
+  "disintegration_bomb_armed": {
+    "category": "block",
+    "sounds": [
+      "kubejs:disintegration_bomb/disintegration_bomb_armed"
+    ]
+  },
+  "disintegration_bomb_explode": {
+    "category": "block",
+    "sounds": [
+      "kubejs:disintegration_bomb/disintegration_bomb_explode"
+    ]
+  }
+}

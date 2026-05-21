@@ -60,8 +60,8 @@
     },
   },
   "include": [
-    "./**/*.ts",
-    "./**/*.d.ts",
+    "../**/*.ts",
+    "../**/*.d.ts",
     "../../.probe/@package/**/*.d.ts",
     "../../.probe/@side-only/server/**/*.d.ts",
     "../../.probe/@special/**/*.d.ts"

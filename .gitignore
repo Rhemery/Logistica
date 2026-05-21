@@ -31,6 +31,7 @@ crash-reports/
 saves/
 downloads/
 local/
+debug/
 .mixin.out/
 fancymenu_data/
 mods/
@@ -61,6 +62,7 @@ libpowergridNative7.dll
 sable_rapier_x86_64_windows.dll
 blueprints/
 XaeroWaypoints_*/
+kubejs/assets/coreawakening_generated/
 
 # ProbeJS cache
 .probe/

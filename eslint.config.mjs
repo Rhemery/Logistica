@@ -79,6 +79,7 @@ export default defineConfig(
       "@typescript-eslint/no-unnecessary-condition": "off",
       "@typescript-eslint/no-dynamic-delete": "off",
     },
+    allowDefaultProject: ["*.mjs", "*.ts", "scripts/*.ts"],
   },
 
   // Disable rules that would conflict with prettier
