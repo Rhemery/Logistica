@@ -63,6 +63,17 @@ sable_rapier_x86_64_windows.dll
 blueprints/
 XaeroWaypoints_*/
 kubejs/assets/coreawakening_generated/
+.qmenu_opened.marker
+debug.log
+TrashSlotSaveState.json
+*.toml.bak
+config/audiolayer/cache
+config/inventoryprofilesnext/*
+!config/inventoryprofilesnext/integrationHints
+!config/inventoryprofilesnext/inventoryprofiles.json
+config/spark/tmp
+config/spark/tmp-client
+config/spark/activity.json
 
 # ProbeJS cache
 .probe/
