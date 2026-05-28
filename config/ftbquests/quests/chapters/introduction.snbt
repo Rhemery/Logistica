@@ -1,0 +1,10 @@
+{
+	default_hide_dependency_lines: false
+	default_quest_shape: ""
+	filename: "introduction"
+	group: "12B478470F0233AC"
+	id: "12F3A42950BCCB5A"
+	order_index: 0
+	quest_links: [ ]
+	quests: [ ]
+}

@@ -26,6 +26,14 @@ leaf_walking_speed = 0.67
 # Default: 25.0
 # Range: 0.0 ~ 1.7976931348623157E308
 tree_entity_damage = 25.0
+#treephysics.config.small_tree_maximum.tooltip
+# Default: 5
+# Range: > 1
+small_tree_maximum = 5
+#treephysics.config.remove_rooted_dirt.tooltip
+remove_rooted_dirt = true
+#treephysics.config.drop_hanging_roots.tooltip
+drop_hanging_roots = false
 
 [physics]
 	#treephysics.config.gravity_multiplier.tooltip
