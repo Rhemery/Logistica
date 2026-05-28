@@ -5,8 +5,8 @@ import {
 import { $LevelBlock } from "@package/dev/latvian/mods/kubejs/level";
 import { $Player } from "@package/net/minecraft/world/entity/player";
 import { $BlockPlacedKubeEvent } from "@package/dev/latvian/mods/kubejs/block";
-import { RuntimeState } from "kubejs_ts/types/minecraft";
 import { toChunkCoord } from "../minecraft/chunk";
+import { Logistica } from "./runtime";
 
 export type OutpostBlockId =
   | "kubejs:market_terminal"
@@ -20,7 +20,7 @@ export type OutpostOwner = {
 
 export type OutpostPlacementContext = {
   event: $BlockPlacedKubeEvent;
-  state: RuntimeState;
+  state: Logistica.Runtime.ServerState;
   block: $LevelBlock;
   blockId: OutpostBlockId;
   owner: OutpostOwner;
@@ -61,7 +61,7 @@ export function getOutpostOwner(player: $Player | null): OutpostOwner | null {
 }
 
 export function countPlayerOutpostsOverall(
-  state: RuntimeState,
+  state: Logistica.Runtime.ServerState,
   ownerId: string,
 ): number {
   const marketTerminals = state.marketTerminals.filter(
@@ -77,7 +77,7 @@ export function countPlayerOutpostsOverall(
 }
 
 export function countPlayerOutpostsByBlockId(
-  state: RuntimeState,
+  state: Logistica.Runtime.ServerState,
   ownerId: string,
   blockId: OutpostBlockId,
 ): number {
@@ -94,7 +94,7 @@ export function countPlayerOutpostsByBlockId(
 }
 
 export function countPlayerOutpostsInRadius(
-  state: RuntimeState,
+  state: Logistica.Runtime.ServerState,
   ownerId: string,
   centerDimension: string,
   centerX: number,
@@ -148,11 +148,8 @@ export function isOutpostPlaceable(
   context: OutpostPlacementContext,
   rules: OutpostPlacementRule[],
 ): OutpostPlacementResult {
-  console.infof(`[isOutpostPlaceable] Checking: ${context.blockId} - ${rules}`);
   for (const rule of rules) {
-    console.infof(`[isOutpostPlaceable] Rule: ${rule.id}`);
     if (!rule.isAllowed(context)) {
-      console.infof(`[isOutpostPlaceable] Rule failed: ${rule.id}`);
       context.event.player.tell({
         text: rule.message,
         color: "red",

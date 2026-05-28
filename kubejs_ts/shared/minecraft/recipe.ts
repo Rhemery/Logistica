@@ -1,16 +1,16 @@
 import { $RecipesKubeEvent } from "@package/dev/latvian/mods/kubejs/recipe";
-import { clearObject, deepSearch, tryParse } from ".";
 import { DeepSearchObject, ItemId } from "kubejs_ts/types/minecraft";
-import { tagHasItem, tagId } from "./item";
-import { logProgress } from "./logs";
+import { tagHasItem, toTagId } from "./item";
+import { logProgress } from "../logs";
 import { Recipe, UnknownJavaRecipe } from "kubejs_ts/types/minecraft/recipe";
 import { ItemStack } from "kubejs_ts/types/minecraft/item";
+import { clearObject, deepSearch, tryParse } from "../object";
+import { saveJson, tryLoadJson } from "../files";
 
 export function loadRecipes(event: $RecipesKubeEvent) {
+  if (tryLoadJson("kubejs/exported/server/recipes.json", "Recipes", global.recipes)) return;
   if (Object.keys(global.items).length == 0) {
-    console.errorf(
-      "[Economy] loadRecipes() depends on loadItems(), but no items found.",
-    );
+    console.errorf("[Economy] loadRecipes() depends on loadItems(), but no items found.");
   }
   console.infof("[Economy] Collecting recipes...");
   clearObject(global.recipes);
@@ -50,23 +50,15 @@ export function loadRecipes(event: $RecipesKubeEvent) {
     javaRecipes[id] = javaRecipe.json;
   });
 
-  JsonIO.write(
-    "kubejs/exported/server/java_recipes.json",
-    JSON.parse(JSON.stringify(javaRecipes, null, 2)),
-  );
-  JsonIO.write(
-    "kubejs/exported/server/recipes.json",
-    JSON.parse(JSON.stringify(global.recipes, null, 2)),
-  );
+  saveJson("kubejs/exported/server/recipes.json", global.recipes);
+  saveJson("kubejs/exported/server/java_recipes.json", javaRecipes);
 }
 
 export function normalizeRecipe(id: string, recipe: UnknownJavaRecipe): Recipe {
   function processRecipe(
     paths: string[],
     expect: Parameters<typeof deepSearch>[3],
-    callback: (
-      search: (input: DeepSearchObject, output: any[]) => void,
-    ) => void,
+    callback: (search: (input: DeepSearchObject, output: any[]) => void) => void,
   ) {
     paths.forEach((path) => {
       callback((input, output) => {
@@ -161,12 +153,7 @@ export function normalizeRecipe(id: string, recipe: UnknownJavaRecipe): Recipe {
     "sequence[].ingredients[].item",
     "sequence[].ingredients[].tag",
   ];
-  const resultPaths = [
-    "result",
-    "result[]",
-    "results[]",
-    "sequence[].results[]",
-  ];
+  const resultPaths = ["result", "result[]", "results[]", "sequence[].results[]"];
 
   const ingredientSearchResult: string[] = [];
   const resultSearchResult: ItemStack[] = [];
@@ -206,14 +193,7 @@ export function normalizeRecipe(id: string, recipe: UnknownJavaRecipe): Recipe {
 
   if (recipe.addition && recipe.base && recipe.template) {
     processRecipe(
-      [
-        "addition.item",
-        "addition.tag",
-        "base.item",
-        "base.tag",
-        "template.item",
-        "template.tag",
-      ],
+      ["addition.item", "addition.tag", "base.item", "base.tag", "template.item", "template.tag"],
       ["string"],
       (search) => {
         search(recipe, ingredientSearchResult);
@@ -241,18 +221,13 @@ export function normalizeRecipe(id: string, recipe: UnknownJavaRecipe): Recipe {
     {} as Record<ItemId, ItemStack>,
   );
 
-  function recipeKind(
-    inputs: ItemStack[],
-    outputs: ItemStack[],
-  ): Recipe["kind"] {
+  function recipeKind(inputs: ItemStack[], outputs: ItemStack[]): Recipe["kind"] {
     for (const input of inputs) {
-      if (tagHasItem(tagId("#c:storage_blocks"), input.id))
-        return "decompression";
+      if (tagHasItem(toTagId("#c:storage_blocks"), input.id)) return "decompression";
     }
 
     for (const output of outputs) {
-      if (tagHasItem(tagId("#c:storage_blocks"), output.id))
-        return "compression";
+      if (tagHasItem(toTagId("#c:storage_blocks"), output.id)) return "compression";
     }
 
     return "unknown";

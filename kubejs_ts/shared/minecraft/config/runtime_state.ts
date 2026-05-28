@@ -1,8 +1,5 @@
 import type { ItemId } from "kubejs_ts/types/minecraft";
 
-export const RUNTIME_STATE_NBT_KEY = "logisticaStateJson";
-export const LEGACY_RUNTIME_STATE_NBT_KEYS = ["logisticaMvpStateJson"] as const;
-
 // Keep normalization defaults side-effect free so helper scripts can import
 // persistence keys without registering gameplay event handlers.
 export const DEFAULT_VILLAGE_REFRESH_TICKS = 20 * 45;

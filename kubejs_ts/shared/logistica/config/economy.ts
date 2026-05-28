@@ -49,6 +49,18 @@ export function applyTagValueModifier(
   }
 }
 
+export const MATERIAL_FORM = {
+  ore: "ores",
+  raw: "raw_materials",
+  crushed: "crushed_raw_materials",
+  dust: "dusts",
+  nugget: "nuggets",
+  ingot: "ingots",
+  gem: "gems",
+  plate: "plates",
+  block: "storage_blocks",
+} as const;
+
 export const MONEY: { id: ItemId; value: number }[] = [
   {
     id: "numismatics:sun",

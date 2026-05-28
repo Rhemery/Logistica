@@ -1,9 +1,8 @@
 import type { ItemId, TagId } from "kubejs_ts/types/minecraft/index";
 import { ItemValueOperation, type Item } from "kubejs_ts/types/minecraft/item";
-import { clearObject } from ".";
-import { toPlainNumber } from "./math";
+import { toPlainNumber } from "../math";
 import { $InventoryKJS } from "@package/dev/latvian/mods/kubejs/core";
-import { logProgress } from "./logs";
+import { logProgress } from "../logs";
 import {
   BASE_TAG_VALUES,
   CATEGORY_WEIGHTS,
@@ -11,6 +10,8 @@ import {
   SPECIFIC_TAG_VALUES,
   TagValues,
 } from "../logistica/config/economy";
+import { clearObject } from "../object";
+import { saveJson, tryLoadJson } from "../files";
 
 export const DEFAULT_ROOT_ITEM_VALUE = 25;
 export const MIN_MEANINGFUL_ITEM_VALUE = 5;
@@ -31,6 +32,12 @@ export const EXCLUDED_ITEM_KEYWORDS = [
 ];
 
 export function loadItems() {
+  const itemsLoaded = tryLoadJson("kubejs/exported/server/items.json", "Items", global.items);
+  tryLoadJson("kubejs/exported/server/tags.json", "Tags", global.tags);
+  if (itemsLoaded) {
+    return;
+  }
+
   console.infof("[Economy] Collecting items...");
   clearObject(global.items);
   clearObject(global.tags);
@@ -48,8 +55,7 @@ export function loadItems() {
 
     const tags: TagId[] = [];
     javaItem.tags.forEach((tagResourceLocation) => {
-      const tag =
-        `#${tagResourceLocation.namespace}:${tagResourceLocation.path}` as TagId;
+      const tag = `#${tagResourceLocation.namespace}:${tagResourceLocation.path}` as TagId;
       tags.push(tag);
       if (global.tags[tag] && !global.tags[tag].includes(javaItemId)) {
         global.tags[tag].push(javaItemId);
@@ -120,15 +126,8 @@ export function loadItems() {
     global.items[item.id] = item;
   });
 
-  JsonIO.write(
-    "kubejs/exported/server/items.json",
-    JSON.parse(JSON.stringify(global.items, null, 2)),
-  );
-
-  JsonIO.write(
-    "kubejs/exported/server/tags.json",
-    JSON.parse(JSON.stringify(global.tags, null, 2)),
-  );
+  saveJson("kubejs/exported/server/items.json", global.items);
+  saveJson("kubejs/exported/server/items.json", global.tags);
 }
 
 export function getAllItemIds(): ItemId[] {
@@ -172,7 +171,7 @@ export function isItemId(id: string): id is ItemId {
   return true;
 }
 
-export function itemId(id: string): ItemId {
+export function toItemId(id: string): ItemId {
   if (!id.includes(":")) id = `minecraft:${id.replace("#", "")}`;
   if (isItemId(id)) return id;
   throw new Error(`Expected item ID ('namespace:item'), got ${id}`);
@@ -198,7 +197,7 @@ export function isTag(tag: string): tag is TagId {
   return true;
 }
 
-export function tagId(id: string): TagId {
+export function toTagId(id: string): TagId {
   if (!id.includes(":")) id = `minecraft:${id.replace("#", "")}`;
   if (isTag(id)) return id;
   if (isTag(`#${id}`)) return `#${id}` as TagId;
@@ -223,10 +222,7 @@ export function tagHasItem(tag: TagId, item: ItemId) {
   return false;
 }
 
-export function registerItemValueChange(
-  id: ItemId,
-  input: Item["valueChanges"][number],
-) {
+export function registerItemValueChange(id: ItemId, input: Item["valueChanges"][number]) {
   const item = getItem(id);
   if (!item) return;
 
@@ -311,12 +307,8 @@ export function getPreferredItem(tag: TagId) {
 
 export function determineItemKind(item: ItemId): Item["kind"] {
   if (
-    global.biomeData.naturalBlocks[
-      item as keyof typeof global.biomeData.naturalBlocks
-    ] ||
-    global.biomeData.naturalItems[
-      item as keyof typeof global.biomeData.naturalItems
-    ]
+    global.biomeData.naturalBlocks[item as keyof typeof global.biomeData.naturalBlocks] ||
+    global.biomeData.naturalItems[item as keyof typeof global.biomeData.naturalItems]
   ) {
     return "resource";
   } else {
@@ -326,9 +318,7 @@ export function determineItemKind(item: ItemId): Item["kind"] {
 
 export function getNaturalItemAbundance(itemId: string): number {
   const sources =
-    global.biomeData.naturalItems[
-      itemId as keyof typeof global.biomeData.naturalItems
-    ];
+    global.biomeData.naturalItems[itemId as keyof typeof global.biomeData.naturalItems];
 
   if (sources === undefined) return 0;
   if (Array.isArray(sources)) {
@@ -379,10 +369,7 @@ export function getStackItemIds(id: string): ItemId[] {
   const result: ItemId[] = [];
 
   Object.values(global.items).forEach((item) => {
-    if (
-      item.itemTags.includes(normalized) ||
-      item.blockTags.includes(normalized)
-    ) {
+    if (item.itemTags.includes(normalized) || item.blockTags.includes(normalized)) {
       result.push(item.id);
     }
   });
@@ -419,11 +406,7 @@ export function getItemCategoryWeightMultiplier(itemId: ItemId): number {
   return multiplier;
 }
 
-export function insertItem(
-  inventory: $InventoryKJS,
-  itemId: ItemId,
-  amount: number,
-): number {
+export function insertItem(inventory: $InventoryKJS, itemId: ItemId, amount: number): number {
   if (amount <= 0) return 0;
 
   const stack = Item.of(itemId, amount);
@@ -452,11 +435,7 @@ export function countItem(inventory: $InventoryKJS, itemId: ItemId): number {
   return total;
 }
 
-export function extractItem(
-  inventory: $InventoryKJS,
-  itemId: ItemId,
-  amount: number,
-): number {
+export function extractItem(inventory: $InventoryKJS, itemId: ItemId, amount: number): number {
   if (amount <= 0) return 0;
 
   let remaining = amount;

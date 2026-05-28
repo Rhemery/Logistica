@@ -4,7 +4,6 @@ import { snakeCase } from "change-case";
 import { $RecipesKubeEvent } from "dev.latvian.mods.kubejs.recipe.RecipesKubeEvent";
 import {
   getPreferredItem,
-  ITEM_GROUP_NAMESPACE,
   unique,
 } from "kubejs_ts/shared";
 import {
@@ -13,6 +12,8 @@ import {
 } from "kubejs_ts/shared/config";
 import { Material } from "kubejs_ts/types/material";
 import { ItemId, Recipe } from "kubejs_ts/types/recipe";
+
+export const ITEM_GROUP_NAMESPACE = ["c", "neoforge"] as const;
 
 const InputForms = ["ores", "raw_materials", "crushed_raw_materials", "dusts"];
 

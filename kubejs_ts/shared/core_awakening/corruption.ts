@@ -16,6 +16,8 @@ import {
   CORE_PURITY_DECAY_PER_STEP,
   CORE_SLEEP_RESTORE_PER_STEP,
   CORRUPTION_BLOCK_INTERVAL_TICKS,
+  CORRUPTION_CONVERSION_EXCLUDED_BLOCK_IDS,
+  CORRUPTION_CONVERSION_EXCLUDED_BLOCK_TAGS,
   CORRUPTION_DECAY_PER_STEP,
   CORRUPTION_FOG_THRESHOLD,
   CORRUPTION_MAX_INTENSITY,
@@ -28,37 +30,40 @@ import {
   CORRUPTION_NODE_DEFAULT_STRENGTH,
   CORRUPTION_NODE_PULSE_INTERVAL_TICKS,
   CORRUPTION_PLAYER_INTERVAL_TICKS,
+  CORRUPTION_REPLACEABLE_HANDLING_MODE,
+  CORRUPTION_REPLACEABLE_SCAN_HEIGHT,
   CORRUPTION_SAVE_SNAPSHOT_INTERVAL_TICKS,
-  CORRUPTION_SIM_INTERVAL_TICKS,
   CORRUPTION_SPREAD_SHARE,
+  NODE_PULSE_SOUND,
   PURITY_CURE_ITEMS,
   PURITY_REFINERY_BASE_PULSE,
   PURITY_REFINERY_BLOCK_IDS,
   PURITY_REFINERY_DEFAULT_POTENCY,
   PURITY_REFINERY_PULSE_INTERVAL_TICKS,
 } from "../core_awakening/config/corruption";
-import { CA } from "kubejs_ts/types/core_awakening";
-import { createCore } from "./core";
 import { chunkKey, toChunkCoord } from "../minecraft/chunk";
-import { clamp, randomInt, toPlainNumber } from "../minecraft/math";
+import { clamp, lengthdir, randomInt, toPlainNumber } from "../math";
 import {
-  getRuntimeCA,
-  getRuntimeEntity,
-  persistRuntimeState,
-  saveRuntimeEntity,
-} from "../minecraft/runtime";
-import { findSurfaceY, getBlockDimension } from "../minecraft/utils";
+  findSurfaceY,
+  getBlockDimension,
+  toCommandNumber,
+} from "../minecraft/utils";
 import {
   GENERATED_CORRUPTION_BLOCK_CONVERSION_MAP_DOWN,
   GENERATED_CORRUPTION_BLOCK_CONVERSION_MAP_UP,
 } from "./generated/corruption_block_conversion";
+import { isBlockPrototypeReplaceable } from "./block_snapshot";
 import { $ServerPlayer } from "@package/net/minecraft/server/level";
+import { CoreAwakening } from "./runtime";
+import { $ServerLevel } from "@package/net/minecraft/server/level";
 
 type CorruptionPressure = {
   chunkIntensity: number;
   nodeAura: number;
   exposure: number;
 };
+
+type CorruptionConversionDirection = "up" | "down";
 
 function isCorruptionNodeBlockId(blockId: string): boolean {
   return CORRUPTION_NODE_BLOCK_IDS.includes(blockId as BlockId);
@@ -69,31 +74,31 @@ function isPurityRefineryBlockId(blockId: string): boolean {
 }
 
 function getNodeByKey(
-  state: CA.RuntimeState,
+  state: CoreAwakening.Runtime.ServerState,
   key: string,
-): CA.CorruptionNodeState | null {
+): CoreAwakening.CorruptionNodeState | null {
   return state.corruptionNodes.find((entry) => entry.key === key) ?? null;
 }
 
 function getRefineryByKey(
-  state: CA.RuntimeState,
+  state: CoreAwakening.Runtime.ServerState,
   key: string,
-): CA.PurityRefineryState | null {
+): CoreAwakening.PurityRefineryState | null {
   return state.purityRefineries.find((entry) => entry.key === key) ?? null;
 }
 
 function getOrCreateCorruptionChunk(
-  state: CA.RuntimeState,
+  state: CoreAwakening.Runtime.ServerState,
   dimension: string,
   chunkX: number,
   chunkZ: number,
   tick: number,
-): CA.ChunkState {
+): CoreAwakening.ChunkState {
   const key = chunkKey(dimension, chunkX, chunkZ);
   const existing = state.chunks.find((entry) => entry.key === key);
   if (existing) return existing;
 
-  const created: CA.ChunkState = {
+  const created: CoreAwakening.ChunkState = {
     key,
     dimension,
     chunkX,
@@ -107,7 +112,7 @@ function getOrCreateCorruptionChunk(
 }
 
 function addCorruptionAtChunk(
-  state: CA.RuntimeState,
+  state: CoreAwakening.Runtime.ServerState,
   dimension: string,
   chunkX: number,
   chunkZ: number,
@@ -131,7 +136,7 @@ function addCorruptionAtChunk(
 }
 
 function getChunkIntensity(
-  state: CA.RuntimeState,
+  state: CoreAwakening.Runtime.ServerState,
   dimension: string,
   chunkX: number,
   chunkZ: number,
@@ -141,7 +146,7 @@ function getChunkIntensity(
 }
 
 function computeCorruptionPressure(
-  state: CA.RuntimeState,
+  state: CoreAwakening.Runtime.ServerState,
   dimension: string,
   x: number,
   y: number,
@@ -174,13 +179,188 @@ function computeCorruptionPressure(
   };
 }
 
+function resolveSnapshotSourceBlockId(blockId: string): string {
+  if (!blockId) return blockId;
+
+  const visited = new Set<string>();
+  let current = blockId;
+
+  while (!visited.has(current)) {
+    visited.add(current);
+    const previous = GENERATED_CORRUPTION_BLOCK_CONVERSION_MAP_DOWN[current];
+    if (!previous || previous === current) break;
+    current = previous;
+  }
+
+  return current;
+}
+
+function isAirOrFluidBlockId(blockId: string): boolean {
+  return (
+    blockId === "minecraft:air" ||
+    blockId === "minecraft:cave_air" ||
+    blockId === "minecraft:void_air" ||
+    blockId === "minecraft:water" ||
+    blockId === "minecraft:lava"
+  );
+}
+
+function isCorruptionConversionExcludedSourceBlock(
+  sourceBlockId: string,
+  block: $LevelBlock | null,
+): boolean {
+  if (
+    CORRUPTION_CONVERSION_EXCLUDED_BLOCK_IDS.includes(sourceBlockId as BlockId)
+  ) {
+    return true;
+  }
+
+  if (!block) return false;
+  for (const tag of CORRUPTION_CONVERSION_EXCLUDED_BLOCK_TAGS) {
+    if (block.hasTag(tag)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isReplaceableAttachmentBlock(block: $LevelBlock | null): boolean {
+  if (!block) return false;
+
+  const blockId = block.getId();
+  if (isAirOrFluidBlockId(blockId)) return false;
+  if (block.hasTag("minecraft:replaceable")) return true;
+  if (block.hasTag("minecraft:flowers")) return true;
+  if (isBlockPrototypeReplaceable(resolveSnapshotSourceBlockId(blockId))) {
+    return true;
+  }
+
+  const state = block.getBlockState();
+  if (!state) return false;
+  if (state.isAir()) return false;
+  if (state.canBeReplaced()) return true;
+
+  return false;
+}
+
+function getCorruptionConversionReplacement(
+  block: $LevelBlock | null,
+  direction: CorruptionConversionDirection,
+): string | null {
+  if (!block) return null;
+
+  const blockId = block.getId() as BlockId;
+  const sourceBlockId = resolveSnapshotSourceBlockId(blockId);
+  if (
+    direction === "up" &&
+    isCorruptionConversionExcludedSourceBlock(sourceBlockId, block)
+  ) {
+    return null;
+  }
+
+  const map =
+    direction === "up"
+      ? GENERATED_CORRUPTION_BLOCK_CONVERSION_MAP_UP
+      : GENERATED_CORRUPTION_BLOCK_CONVERSION_MAP_DOWN;
+  const replacement = map[blockId];
+  if (!replacement || replacement === blockId) return null;
+
+  return replacement;
+}
+
+function handleReplaceableBlocksAboveConvertedGround(
+  level: $ServerLevel,
+  x: number,
+  y: number,
+  z: number,
+  direction: CorruptionConversionDirection,
+): boolean {
+  if (CORRUPTION_REPLACEABLE_HANDLING_MODE === "ignore") {
+    return false;
+  }
+
+  let changed = false;
+  for (let offset = 1; offset <= CORRUPTION_REPLACEABLE_SCAN_HEIGHT; offset++) {
+    const ay = y + offset;
+    const attached = level.getBlock(x, ay, z);
+    if (!isReplaceableAttachmentBlock(attached)) {
+      break;
+    }
+
+    if (CORRUPTION_REPLACEABLE_HANDLING_MODE === "convert_or_remove") {
+      const replacement = getCorruptionConversionReplacement(attached, direction);
+      if (replacement) {
+        level.runCommandSilent(`setblock ${x} ${ay} ${z} ${replacement} replace`);
+        changed = true;
+        continue;
+      }
+
+      // During de-infection we keep non-convertible replaceables in place.
+      if (direction === "down") {
+        break;
+      }
+    }
+
+    // No conversion target (or mode is remove_only): remove without drops.
+    level.runCommandSilent(`setblock ${x} ${ay} ${z} minecraft:air replace`);
+    changed = true;
+  }
+
+  return changed;
+}
+
+function applyCorruptionConversionAt(
+  level: $ServerLevel,
+  x: number,
+  y: number,
+  z: number,
+  direction: CorruptionConversionDirection,
+): boolean {
+  const source = level.getBlock(x, y, z);
+  const replacement = getCorruptionConversionReplacement(source, direction);
+  if (!replacement) return false;
+
+  let changed = false;
+  changed =
+    handleReplaceableBlocksAboveConvertedGround(level, x, y, z, direction) ||
+    changed;
+  level.runCommandSilent(`setblock ${x} ${y} ${z} ${replacement} replace`);
+  changed = true;
+
+  return changed;
+}
+
+function isPassThroughCorruptionBlock(block: $LevelBlock | null): boolean {
+  if (!block) return true;
+
+  const blockId = block.getId();
+  if (isAirOrFluidBlockId(blockId)) return true;
+
+  if (block.hasTag("minecraft:replaceable")) return true;
+  if (block.hasTag("minecraft:flowers")) return true;
+  if (isBlockPrototypeReplaceable(resolveSnapshotSourceBlockId(blockId))) {
+    return true;
+  }
+
+  const state = block.getBlockState();
+  if (!state) return true;
+  if (state.isAir()) return true;
+  if (state.canBeReplaced()) return true;
+  if (state.getFluidState().getType().getId() !== "minecraft:empty") {
+    return true;
+  }
+
+  return false;
+}
+
 function updateLivingCoreByPressure(
   living: $LivingEntity,
   pressure: CorruptionPressure,
   corruptionScale: number,
   purityScale: number,
 ): { corruption: number; purity: number } {
-  const entityData = getRuntimeEntity(living);
+  const entityData = CoreAwakening.Runtime.getEntityState(living);
   const corruptionBefore = entityData.core.corruption;
   const purityBefore = entityData.core.purity;
 
@@ -201,7 +381,6 @@ function updateLivingCoreByPressure(
 
   entityData.core.corruption = corruptionAfter;
   entityData.core.purity = purityAfter;
-  saveRuntimeEntity(living);
 
   return {
     corruption: corruptionAfter,
@@ -257,7 +436,7 @@ function applyEnergyPenalty(player: $Player, energy: number): void {
 }
 
 function processPlayers(server: $MinecraftServer): void {
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
   const players = server.getPlayers();
 
   players.forEach((entity) => {
@@ -265,7 +444,7 @@ function processPlayers(server: $MinecraftServer): void {
     if (!entity.isPlayer()) return;
 
     const player = entity as $Player & $LivingEntity;
-    createCore(player);
+    const playerData = CoreAwakening.Runtime.getEntityState(player);
 
     const pressure = computeCorruptionPressure(
       state,
@@ -276,7 +455,7 @@ function processPlayers(server: $MinecraftServer): void {
     );
 
     const core = updateLivingCoreByPressure(player, pressure, 0.06, 0.04);
-    let energy = getRuntimeEntity(player).core.energy;
+    let energy = playerData.core.energy;
 
     if (toPlainNumber(player.getSleepTimer(), 0) > 0) {
       energy = clamp(energy + CORE_SLEEP_RESTORE_PER_STEP, 0, CORE_MAX_ENERGY);
@@ -287,7 +466,8 @@ function processPlayers(server: $MinecraftServer): void {
         CORE_MAX_ENERGY,
       );
     }
-    saveRuntimeEntity(player);
+    playerData.core.energy = energy;
+    CoreAwakening.Runtime.saveEntityState(player);
 
     applyCorruptionPowerEffects(player, core.corruption);
     applyEnergyPenalty(player, energy);
@@ -296,7 +476,7 @@ function processPlayers(server: $MinecraftServer): void {
 }
 
 function processMobs(server: $MinecraftServer): void {
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
   const entities = server.getEntities();
   let processed = 0;
 
@@ -306,7 +486,7 @@ function processMobs(server: $MinecraftServer): void {
     if (entity.isPlayer()) return;
 
     const living = entity as $LivingEntity;
-    createCore(living);
+    CoreAwakening.Runtime.getEntityState(living);
 
     const pressure = computeCorruptionPressure(
       state,
@@ -321,21 +501,94 @@ function processMobs(server: $MinecraftServer): void {
 
     const core = updateLivingCoreByPressure(living, pressure, 0.05, 0.03);
     applyCorruptionPowerEffects(living, core.corruption);
-    saveRuntimeEntity(living);
+    CoreAwakening.Runtime.saveEntityState(living);
   });
 }
 
+function updateCorruptionNode(
+  server: $MinecraftServer,
+  node: CoreAwakening.CorruptionNodeState,
+) {
+  function findGroundY(
+    level: $ServerLevel,
+    x: number,
+    y: number,
+    z: number,
+  ): number | null {
+    const minY = level.getMinBuildHeight();
+    const maxY = level.getMaxBuildHeight() - 1;
+    y = clamp(Math.floor(y), minY, maxY);
+
+    let block = level.getBlock(x, y, z);
+    while (y < maxY && block && !isPassThroughCorruptionBlock(block)) {
+      y += 1;
+      block = level.getBlock(x, y, z);
+    }
+
+    while (y > minY && (!block || isPassThroughCorruptionBlock(block))) {
+      y -= 1;
+      block = level.getBlock(x, y, z);
+    }
+
+    if (!block || isPassThroughCorruptionBlock(block)) {
+      return null;
+    }
+
+    return y;
+  }
+
+  let changed = false;
+  if (node.pulseProgress > 0) {
+    const maxProgress = CORRUPTION_NODE_PULSE_INTERVAL_TICKS * node.strength;
+    const normalizedProgress = node.pulseProgress / maxProgress;
+    const invertedProgress = 1 - normalizedProgress;
+    const attemptsPerTick = normalizedProgress * node.strength;
+    const maxDistance = invertedProgress * node.strength * 10;
+    const chanceToReplace = Math.random();
+    const level = server.getLevel(node.dimension);
+    if (!level) return changed;
+
+    for (let i = 0; i < attemptsPerTick * 2; i++) {
+      const direction = randomInt(0, 360);
+      const height = randomInt(node.y, maxDistance);
+      const distance = maxDistance;
+      const [x, z] = lengthdir(node.x, node.z, distance, direction).map((v) =>
+        Math.floor(v),
+      ) as [number, number];
+      const foundY = findGroundY(level, x, height, z);
+      if (foundY == null) continue;
+      const y = Math.floor(foundY);
+
+      const source = level.getBlock(x, y, z);
+      const replacement = getCorruptionConversionReplacement(source, "up");
+      if (!replacement) continue;
+      if (replacement.includes("light_corrupted_") && chanceToReplace > 0.08)
+        continue;
+      if (replacement.includes("heavy_corrupted_") && chanceToReplace > 0.01)
+        continue;
+
+      const didConvert = applyCorruptionConversionAt(level, x, y, z, "up");
+      if (!didConvert) continue;
+      level.runCommandSilent(
+        `particle minecraft:dragon_breath ${x + 0.5} ${y + 1.1} ${z + 0.5} 0.2 0.12 0.2 0.001 5 force`,
+      );
+      changed = true;
+    }
+
+    node.pulseProgress -= 1;
+  }
+
+  return changed;
+}
+
 function pulseCorruptionNodes(server: $MinecraftServer, tick: number): boolean {
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
   let changed = false;
 
-  const aliveNodes: CA.CorruptionNodeState[] = [];
+  const aliveNodes: CoreAwakening.CorruptionNodeState[] = [];
   for (const node of state.corruptionNodes) {
     const level = server.getLevel(node.dimension);
     if (!level) continue;
-    console.infof(
-      `[pulseCorruptionNodes] Processing node: ${node.x}, ${node.y}, ${node.z}`,
-    );
 
     const block = level.getBlock(node.x, node.y, node.z);
     if (!isCorruptionNodeBlockId(block.getId())) {
@@ -343,15 +596,23 @@ function pulseCorruptionNodes(server: $MinecraftServer, tick: number): boolean {
       continue;
     }
 
-    console.infof(
-      `[pulseCorruptionNodes] Adding node: ${node.x}, ${node.y}, ${node.z}`,
-    );
+    updateCorruptionNode(server, node);
+
     aliveNodes.push(node);
     if (tick - node.lastPulseTick < node.pulseIntervalTicks) continue;
+
+    const sx = toCommandNumber(node.x);
+    const sy = toCommandNumber(node.y);
+    const sz = toCommandNumber(node.z);
+
+    level.runCommandSilent(
+      `playsound ${NODE_PULSE_SOUND} block @a[x=${sx},y=${sy},z=${sz},distance=..24] ${sx} ${sy} ${sz} 0.1 0.8`,
+    );
 
     const chunkX = toChunkCoord(node.x);
     const chunkZ = toChunkCoord(node.z);
     const pulse = CORRUPTION_NODE_BASE_PULSE * node.strength;
+    node.pulseProgress = CORRUPTION_NODE_PULSE_INTERVAL_TICKS * node.strength;
 
     addCorruptionAtChunk(state, node.dimension, chunkX, chunkZ, pulse, tick);
     addCorruptionAtChunk(
@@ -403,10 +664,10 @@ function pulsePurityRefineries(
   server: $MinecraftServer,
   tick: number,
 ): boolean {
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
   let changed = false;
 
-  const aliveRefineries: CA.PurityRefineryState[] = [];
+  const aliveRefineries: CoreAwakening.PurityRefineryState[] = [];
   for (const refinery of state.purityRefineries) {
     const level = server.getLevel(refinery.dimension);
     if (!level) continue;
@@ -478,7 +739,7 @@ function pulsePurityRefineries(
 }
 
 function spreadAndDecayCorruption(tick: number): boolean {
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
   if (state.chunks.length === 0) return false;
 
   let changed = false;
@@ -554,46 +815,8 @@ function spreadAndDecayCorruption(tick: number): boolean {
   return changed;
 }
 
-function infectBlocksFromNodes(server: $MinecraftServer): boolean {
-  const state = getRuntimeCA();
-  let changed = false;
-
-  for (const node of state.corruptionNodes) {
-    const level = server.getLevel(node.dimension);
-    if (!level) continue;
-
-    node.strength += 0.005;
-
-    for (let i = 0; i < 10 + node.strength; i++) {
-      const direction = randomInt(0, 360);
-      const distance = randomInt(0, node.strength * 4);
-      const x = Math.round(
-        node.x + Math.cos((direction * Math.PI) / 180) * distance,
-      );
-      const z = Math.round(
-        node.z + Math.sin((direction * Math.PI) / 180) * distance,
-      );
-      const y = findSurfaceY(level, x, z);
-      if (y == null) continue;
-
-      const source = level.getBlock(x, y, z);
-      const replacement =
-        GENERATED_CORRUPTION_BLOCK_CONVERSION_MAP_UP[source.getId() as BlockId];
-      if (!replacement || replacement === source.getId()) continue;
-
-      level.runCommand(`setblock ${x} ${y} ${z} ${replacement} replace`);
-      level.runCommandSilent(
-        `particle minecraft:dragon_breath ${x + 0.5} ${y + 1.1} ${z + 0.5} 0.2 0.12 0.2 0.001 5 force`,
-      );
-      changed = true;
-    }
-  }
-
-  return changed;
-}
-
 function infectBlocks(server: $MinecraftServer): boolean {
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
   if (state.chunks.length === 0) return false;
 
   const candidateChunks = Array.from(state.chunks)
@@ -614,12 +837,8 @@ function infectBlocks(server: $MinecraftServer): boolean {
       const y = findSurfaceY(level, x, z);
       if (y == null) continue;
 
-      const source = level.getBlock(x, y, z);
-      const replacement =
-        GENERATED_CORRUPTION_BLOCK_CONVERSION_MAP_UP[source.getId() as BlockId];
-      if (!replacement || replacement === source.getId()) continue;
-
-      level.runCommandSilent(`setblock ${x} ${y} ${z} ${replacement} replace`);
+      const didConvert = applyCorruptionConversionAt(level, x, y, z, "up");
+      if (!didConvert) continue;
       level.runCommandSilent(
         `particle minecraft:dragon_breath ${x + 0.5} ${y + 1.1} ${z + 0.5} 0.2 0.12 0.2 0.001 5 force`,
       );
@@ -631,7 +850,7 @@ function infectBlocks(server: $MinecraftServer): boolean {
 }
 
 function deinfectBlocks(server: $MinecraftServer): boolean {
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
   if (state.chunks.length === 0) return false;
 
   const candidateChunks = Array.from(state.chunks)
@@ -652,14 +871,8 @@ function deinfectBlocks(server: $MinecraftServer): boolean {
       const y = findSurfaceY(level, x, z);
       if (y == null) continue;
 
-      const source = level.getBlock(x, y, z);
-      const replacement =
-        GENERATED_CORRUPTION_BLOCK_CONVERSION_MAP_DOWN[
-          source.getId() as BlockId
-        ];
-      if (!replacement || replacement === source.getId()) continue;
-
-      level.runCommandSilent(`setblock ${x} ${y} ${z} ${replacement} replace`);
+      const didConvert = applyCorruptionConversionAt(level, x, y, z, "down");
+      if (!didConvert) continue;
       level.runCommandSilent(
         `particle minecraft:dragon_breath ${x + 0.5} ${y + 1.1} ${z + 0.5} 0.2 0.12 0.2 0.001 5 force`,
       );
@@ -671,14 +884,17 @@ function deinfectBlocks(server: $MinecraftServer): boolean {
 }
 
 function writeRuntimeSnapshot(): void {
-  const state = getRuntimeCA();
-  const data: CA.RuntimeState = {
+  const state = CoreAwakening.Runtime.getServerState();
+  const nodesDesintegrated = toPlainNumber(state.nodesDesintegrated, 0);
+  state.nodesDesintegrated = nodesDesintegrated;
+  const data: CoreAwakening.Runtime.ServerState = {
+    tick: state.tick,
     corruptionNodes: state.corruptionNodes,
     purityRefineries: state.purityRefineries,
     chunks: Array.from(state.chunks).sort(
       (left, right) => right.intensity - left.intensity,
     ),
-    nodesDesintegrated: state.nodesDesintegrated,
+    nodesDesintegrated,
   };
   JsonIO.write(
     "kubejs/exported/server/logistica_corruption_state.json",
@@ -688,15 +904,15 @@ function writeRuntimeSnapshot(): void {
 
 export function runCoreAwakeningSimulation(
   server: $MinecraftServer,
-  tick: number,
+  state: CoreAwakening.Runtime.ServerState,
 ): boolean {
-  if (tick % CORRUPTION_SIM_INTERVAL_TICKS !== 0) return false;
+  const tick = state.tick;
+  state.nodesDesintegrated = toPlainNumber(state.nodesDesintegrated, 0);
 
   let changed = false;
   changed = pulseCorruptionNodes(server, tick) || changed;
   changed = pulsePurityRefineries(server, tick) || changed;
   changed = spreadAndDecayCorruption(tick) || changed;
-  changed = infectBlocksFromNodes(server) || changed;
 
   if (tick % CORRUPTION_BLOCK_INTERVAL_TICKS === 0) {
     changed = infectBlocks(server) || changed;
@@ -722,29 +938,30 @@ export function addOrGetCorruptionNode(
   server: $MinecraftServer,
   block: $LevelBlock,
   strength: number = CORRUPTION_NODE_DEFAULT_STRENGTH,
-): CA.CorruptionNodeState {
-  const state = getRuntimeCA();
+): CoreAwakening.CorruptionNodeState {
+  const state = CoreAwakening.Runtime.getServerState();
   const ref = toStationRef(block);
   const existing = getNodeByKey(state, ref.key);
   if (existing) {
     existing.strength = clamp(strength, 0.1, 2.5);
-    persistRuntimeState(server);
+    CoreAwakening.Runtime.saveServerState(server);
     return existing;
   }
 
-  const created: CA.CorruptionNodeState = {
+  const created: CoreAwakening.CorruptionNodeState = {
     key: ref.key,
     dimension: ref.dimension,
     x: ref.x,
     y: ref.y,
     z: ref.z,
     strength: clamp(strength, 0.1, 2.5),
+    pulseProgress: 0,
     pulseIntervalTicks: CORRUPTION_NODE_PULSE_INTERVAL_TICKS,
     lastPulseTick: 0,
   };
 
   state.corruptionNodes.push(created);
-  persistRuntimeState(server);
+  CoreAwakening.Runtime.saveServerState(server);
   return created;
 }
 
@@ -759,14 +976,14 @@ export function removeCorruptionNode(
     block.getZ(),
   );
 
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
   const before = state.corruptionNodes.length;
   state.corruptionNodes = state.corruptionNodes.filter(
     (entry) => entry.key !== key,
   );
 
   if (state.corruptionNodes.length !== before) {
-    persistRuntimeState(server);
+    CoreAwakening.Runtime.saveServerState(server);
     return true;
   }
 
@@ -777,17 +994,17 @@ export function addOrGetPurityRefinery(
   server: $MinecraftServer,
   block: $LevelBlock,
   potency: number = PURITY_REFINERY_DEFAULT_POTENCY,
-): CA.PurityRefineryState {
-  const state = getRuntimeCA();
+): CoreAwakening.PurityRefineryState {
+  const state = CoreAwakening.Runtime.getServerState();
   const ref = toStationRef(block);
   const existing = getRefineryByKey(state, ref.key);
   if (existing) {
     existing.potency = clamp(potency, 0.1, 3);
-    persistRuntimeState(server);
+    CoreAwakening.Runtime.saveServerState(server);
     return existing;
   }
 
-  const created: CA.PurityRefineryState = {
+  const created: CoreAwakening.PurityRefineryState = {
     key: ref.key,
     dimension: ref.dimension,
     x: ref.x,
@@ -799,7 +1016,7 @@ export function addOrGetPurityRefinery(
   };
 
   state.purityRefineries.push(created);
-  persistRuntimeState(server);
+  CoreAwakening.Runtime.saveServerState(server);
   return created;
 }
 
@@ -814,14 +1031,14 @@ export function removePurityRefinery(
     block.getZ(),
   );
 
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
   const before = state.purityRefineries.length;
   state.purityRefineries = state.purityRefineries.filter(
     (entry) => entry.key !== key,
   );
 
   if (state.purityRefineries.length !== before) {
-    persistRuntimeState(server);
+    CoreAwakening.Runtime.saveServerState(server);
     return true;
   }
 
@@ -829,7 +1046,7 @@ export function removePurityRefinery(
 }
 
 function applyPurityToLiving(living: $LivingEntity, purity: number): void {
-  const entityData = getRuntimeEntity(living);
+  const entityData = CoreAwakening.Runtime.getEntityState(living);
   const currentPurity = entityData.core.purity;
   const currentCorruption = entityData.core.corruption;
 
@@ -840,7 +1057,7 @@ function applyPurityToLiving(living: $LivingEntity, purity: number): void {
     CORE_MAX_CORRUPTION,
   );
 
-  saveRuntimeEntity(living);
+  CoreAwakening.Runtime.saveEntityState(living);
 }
 
 export function applyPurityToPlayer(
@@ -849,24 +1066,24 @@ export function applyPurityToPlayer(
   purity: number,
 ): void {
   applyPurityToLiving(player, purity);
-  persistRuntimeState(server);
+  CoreAwakening.Runtime.saveServerState(server);
 }
 
 export function clearCorruptionState(server: $MinecraftServer): void {
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
   state.corruptionNodes = [];
   state.purityRefineries = [];
   state.chunks = [];
   state.nodesDesintegrated = 0;
-  persistRuntimeState(server);
+  CoreAwakening.Runtime.saveServerState(server);
 }
 
 export function getCorruptionSummary(
   player: $Player | $LivingEntity | $ServerPlayer,
 ): string[] {
-  createCore(player as $LivingEntity);
-
-  const state = getRuntimeCA();
+  const state = CoreAwakening.Runtime.getServerState();
+  const nodesDesintegrated = toPlainNumber(state.nodesDesintegrated, 0);
+  state.nodesDesintegrated = nodesDesintegrated;
   const pressure = computeCorruptionPressure(
     state,
     String(player.getLevel().getDimension()),
@@ -875,18 +1092,20 @@ export function getCorruptionSummary(
     Math.floor(toPlainNumber(player.getZ(), 0)),
   );
 
-  const enetityData = getRuntimeEntity(player as $LivingEntity);
+  const enetityData = CoreAwakening.Runtime.getEntityState(
+    player as $LivingEntity,
+  );
   const corruption = enetityData.core.corruption;
   const purity = enetityData.core.purity;
   const energy = enetityData.core.energy;
-  const nodesDisintigrated = enetityData.nodesDisintigrated;
+  const nodesDisintigrated = toPlainNumber(enetityData.nodesDisintigrated, 0);
 
   return [
     `Core corruption: ${corruption.toFixed(1)} | purity: ${purity.toFixed(1)}`,
     `Core energy (player): ${energy.toFixed(1)}`,
     `Local chunk corruption: ${pressure.chunkIntensity.toFixed(2)} | exposure: ${pressure.exposure.toFixed(1)}`,
     `Nodes: ${state.corruptionNodes.length} | refineries: ${state.purityRefineries.length} | tracked chunks: ${state.chunks.length}`,
-    `Node disintegrations: ${nodesDisintigrated} (global ${state.nodesDesintegrated})`,
+    `Node disintegrations: ${nodesDisintigrated} (global ${nodesDesintegrated})`,
   ];
 }
 
@@ -898,11 +1117,16 @@ export function handleCorruptionNodeBroken(
   const removed = removeCorruptionNode(server, block);
   if (!removed || !player) return;
 
-  const entityData = getRuntimeEntity(player);
+  const entityData = CoreAwakening.Runtime.getEntityState(player);
   applyPurityToLiving(player, 8);
-  entityData.nodesDisintigrated += 1;
-  getRuntimeCA().nodesDesintegrated += 1;
-  persistRuntimeState(server);
+  entityData.nodesDisintigrated =
+    toPlainNumber(entityData.nodesDisintigrated, 0) + 1;
+  CoreAwakening.Runtime.getServerState().nodesDesintegrated =
+    toPlainNumber(
+      CoreAwakening.Runtime.getServerState().nodesDesintegrated,
+      0,
+    ) + 1;
+  CoreAwakening.Runtime.saveServerState(server);
 
   player.tell({
     text: `[Core] Corruption node disintegrated (+purity). Total: ${entityData.nodesDisintigrated}`,

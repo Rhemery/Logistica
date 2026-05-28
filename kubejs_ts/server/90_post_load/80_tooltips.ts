@@ -1,5 +1,6 @@
+import { setKubeJsLoadingStatus } from "kubejs_ts/shared/logistica/bridge";
+import { logProgress } from "kubejs_ts/shared/logs";
 import { getItem } from "kubejs_ts/shared/minecraft/item";
-import { logProgress } from "kubejs_ts/shared/minecraft/logs";
 import { ItemId } from "kubejs_ts/types/minecraft";
 import { ItemValueOperation } from "kubejs_ts/types/minecraft/item";
 
@@ -8,7 +9,7 @@ ItemEvents.modifyTooltips((event) => {
   const itemIds = Object.keys(costs) as ItemId[];
 
   itemIds.forEach((itemId, index) => {
-    logProgress("Tooltips", index, itemIds.length);
+    logProgress("Adding Economy Tooltips", index, itemIds.length);
     const item = getItem(itemId);
     const entry = costs[itemId];
     if (!item || !entry) return;
@@ -66,4 +67,6 @@ ItemEvents.modifyTooltips((event) => {
       });
     });
   });
+
+  setKubeJsLoadingStatus(false, "", 1.0);
 });

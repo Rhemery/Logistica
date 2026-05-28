@@ -1,4 +1,5 @@
 ServerEvents.loaded(() => {
+  global.modpackModAudit.ok = true;
   JsonIO.write(
     "kubejs/exported/server/items.json",
     JSON.parse(JSON.stringify(global.items, null, 2)),

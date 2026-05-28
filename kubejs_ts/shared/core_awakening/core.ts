@@ -1,19 +1,14 @@
 import { $LivingEntity } from "@package/net/minecraft/world/entity";
-import { saveNbt } from "../minecraft/nbt";
-import { CA } from "kubejs_ts/types/core_awakening";
+import { CoreAwakening } from "./runtime";
 
+/**
+ * Legacy key from early prototypes. New runtime data is written to
+ * `CoreAwakening.Runtime.ENTITY_NBT_KEY`.
+ */
 export const CA_ENTITY_NBT_KEY = "ca_entity";
 
 export function createCore(entity: $LivingEntity): void {
-  const data: CA.EntityData = {
-    core: {
-      health: 0,
-      energy: 0,
-      corruption: 0,
-      purity: 0,
-    },
-    nodesDisintigrated: 0,
-  };
-
-  saveNbt(entity.persistentData, CA_ENTITY_NBT_KEY, data);
+  // Idempotent initialization: hydrate from persistent data or create defaults.
+  CoreAwakening.Runtime.loadEntityState(entity);
+  CoreAwakening.Runtime.saveEntityState(entity);
 }

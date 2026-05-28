@@ -1,4 +1,4 @@
-import { ItemId, RuntimeState } from "kubejs_ts/types/minecraft";
+import { ItemId } from "kubejs_ts/types/minecraft";
 import {
   MarketEntry,
   VillageDemandOrder,
@@ -24,11 +24,9 @@ import { $Level } from "@package/net/minecraft/world/level";
 import { $BlockPos } from "@package/net/minecraft/core";
 import { OUTPOST_PLACE_RULES } from "../logistica/config/outposts";
 import { chunkKey, toChunkCoord } from "../minecraft/chunk";
-import { getRuntimeState, persistRuntimeState } from "../minecraft/runtime";
-import { assignObject } from "../minecraft";
-import { randomInt, toPlainNumber } from "../minecraft/math";
+import { randomInt, toPlainNumber } from "../math";
 import {
-  compressCoins,
+  compressMoney,
   getControllerBlock,
   isMainHand,
 } from "../minecraft/utils";
@@ -37,6 +35,7 @@ import {
   getRelativeInventory,
 } from "../minecraft/inventory";
 import { extractItem, insertItem } from "../minecraft/item";
+import { Logistica } from "./runtime";
 
 export const VILLAGE_MARKET_BLOCK_ID =
   "kubejs:village_market_controller" as OutpostBlockId;
@@ -78,10 +77,12 @@ export function addOrGetVillageMarket(
   server: $MinecraftServer,
   block: $LevelBlock,
 ): VillageMarketState {
-  const state = getRuntimeState();
+  const state = Logistica.Runtime.getServerState();
   const ref = toStationRef(block);
   const existing = state.villageMarkets.find((entry) => entry.key === ref.key);
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
 
   const created: VillageMarketState = {
     key: ref.key,
@@ -100,7 +101,7 @@ export function addOrGetVillageMarket(
   };
 
   state.villageMarkets.push(created);
-  persistRuntimeState(server);
+  Logistica.Runtime.saveServerState(server);
   return created;
 }
 
@@ -232,7 +233,7 @@ export function handleVillageMarket(
 
   if (market.pendingPayout > 0) {
     let paidNow = 0;
-    const money = compressCoins(market.pendingPayout);
+    const money = compressMoney(market.pendingPayout);
     money.forEach((stack) => {
       paidNow += insertItem(payoutInventory, stack.id, stack.count);
     });
@@ -262,7 +263,7 @@ export function handleVillageMarket(
 
   if (payout > 0) {
     let paidNow = 0;
-    const money = compressCoins(payout);
+    const money = compressMoney(payout);
     money.forEach((stack) => {
       paidNow += insertItem(payoutInventory, stack.id, stack.count);
     });
@@ -300,7 +301,7 @@ export function showVillageOrders(
 }
 
 export function isVillageChunkAllowed(
-  state: RuntimeState,
+  state: Logistica.Runtime.ServerState,
   dimension: string,
   x: number,
   z: number,
@@ -379,7 +380,7 @@ export function isNativeVillageAt(block: $LevelBlock): boolean {
 }
 
 export function registerVillageChunks(
-  state: RuntimeState,
+  state: Logistica.Runtime.ServerState,
   dimension: string,
   x: number,
   z: number,
@@ -408,7 +409,7 @@ export function discoverVillageChunksFromPlacement(
   server: $MinecraftServer,
   block: $LevelBlock,
 ): boolean {
-  const state = getRuntimeState();
+  const state = Logistica.Runtime.getServerState();
   const dimension = String(block.getDimension());
 
   if (isVillageChunkAllowed(state, dimension, block.getX(), block.getZ())) {
@@ -435,7 +436,7 @@ export function discoverVillageChunksFromPlacement(
   );
 
   if (added > 0) {
-    persistRuntimeState(server);
+    Logistica.Runtime.saveServerState(server);
   }
 
   return true;
@@ -444,7 +445,7 @@ export function discoverVillageChunksFromPlacement(
 BlockEvents.placed(VILLAGE_MARKET_BLOCK_ID, (event) => {
   if (event.level.isClientSide()) return;
 
-  const state = getRuntimeState();
+  const state = Logistica.Runtime.getServerState();
   const owner = getOutpostOwner(event.player);
   if (!owner) {
     event.cancel();
@@ -484,7 +485,7 @@ BlockEvents.placed(VILLAGE_MARKET_BLOCK_ID, (event) => {
 
   const market = addOrGetVillageMarket(event.server, event.block);
   stampOutpostOwner(market, owner);
-  persistRuntimeState(event.server);
+  Logistica.Runtime.saveServerState(event.server);
 });
 
 BlockEvents.broken(VILLAGE_MARKET_BLOCK_ID, (event) => {
@@ -496,7 +497,7 @@ BlockEvents.rightClicked(VILLAGE_MARKET_BLOCK_ID, (event) => {
   if (!isMainHand(String(event.hand))) return;
   if (event.level.isClientSide()) return;
 
-  const state = getRuntimeState();
+  const state = Logistica.Runtime.getServerState();
   const market = addOrGetVillageMarket(event.server, event.block);
   const payoutInventory = getRelativeInventory(event.block, 0, -1, 0);
   const tokenCount = payoutInventory ? countDispatchTokens(payoutInventory) : 0;
@@ -505,7 +506,7 @@ BlockEvents.rightClicked(VILLAGE_MARKET_BLOCK_ID, (event) => {
     refreshVillageOrders(market, Math.max(1, 1 + market.backlogRefreshes));
     market.backlogRefreshes = 0;
     market.lastRefreshTick = state.tick;
-    persistRuntimeState(event.server);
+    Logistica.Runtime.saveServerState(event.server);
   }
 
   event.player.tell({

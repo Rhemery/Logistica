@@ -9,9 +9,9 @@ import {
   describeInventoryPresent,
   getRelativeInventory,
 } from "../minecraft/inventory";
-import { getRuntimeState, persistRuntimeState } from "../minecraft/runtime";
-import { toPlainNumber } from "../minecraft/math";
-import { countItem, itemId } from "../minecraft/item";
+import { toPlainNumber } from "../math";
+import { countItem, toItemId } from "../minecraft/item";
+import { Logistica } from "./runtime";
 
 export const HUB_DISPATCH_BLOCK_ID = "kubejs:hub_dispatch_controller";
 export const DISPATCH_TOKEN_ITEM = "minecraft:paper" as ItemId;
@@ -89,7 +89,7 @@ export function addOrGetHubDispatch(
   server: $MinecraftServer,
   block: $LevelBlock,
 ): HubDispatchState {
-  const state = getRuntimeState();
+  const state = Logistica.Runtime.getServerState();
   const ref = toStationRef(block);
   const existing = state.hubs.find((entry) => entry.key === ref.key);
   if (existing) return existing;
@@ -108,7 +108,7 @@ export function addOrGetHubDispatch(
   };
 
   state.hubs.push(created);
-  persistRuntimeState(server);
+  Logistica.Runtime.saveServerState(server);
   return created;
 }
 
@@ -192,7 +192,7 @@ export function extractDispatchTokens(
     const take = Math.min(remaining, slotCount);
     stack.setCount(slotCount - take);
     inventory.setStackInSlot(slot, {
-      id: itemId(stack.id),
+      id: toItemId(stack.id),
       count: stack.getCount(),
     });
 
@@ -211,7 +211,7 @@ export function insertDispatchToken(
   const token = createDispatchTokenStack(1, sourceKey, reason);
   const remaining = inventory.insertItem(
     {
-      id: itemId(token.id),
+      id: toItemId(token.id),
       count: token.getCount(),
     },
     false,

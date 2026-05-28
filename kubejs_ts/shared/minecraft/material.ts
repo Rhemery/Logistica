@@ -6,15 +6,15 @@ import {
   INFER_MATERIAL_OVERRIDE,
 } from "./config/materials";
 import { ItemId } from "kubejs_ts/types/minecraft";
-import { clearObject } from ".";
-import { logProgress } from "./logs";
+import { logProgress } from "../logs";
+import { clearObject } from "../object";
+import { tryLoadJson } from "../files";
 
 export function LoadMaterials() {
+  if (tryLoadJson("kubejs/exported/server/materials.json", "Materials", global.materials)) return;
   const items = Object.values(global.items);
   if (items.length == 0) {
-    console.errorf(
-      "[Economy] LoadMaterials() depends on loadItems(), but no items found.",
-    );
+    console.errorf("[Economy] LoadMaterials() depends on loadItems(), but no items found.");
   }
   console.infof("[Economy] Infering materials...");
   function addMaterial(material: string, item: Item) {
@@ -25,8 +25,7 @@ export function LoadMaterials() {
         value: 0,
       };
     } else {
-      if (!global.materials[material].items)
-        global.materials[material].items = [];
+      if (!global.materials[material].items) global.materials[material].items = [];
       if (!global.materials[material].items.includes(item.id))
         global.materials[material].items.push(item.id);
     }

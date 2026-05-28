@@ -1,11 +1,5 @@
-import { clearObject } from "../minecraft";
-
 import { ItemId, TagId } from "kubejs_ts/types/minecraft";
-import {
-  Item,
-  ItemStack,
-  ItemValueOperation,
-} from "kubejs_ts/types/minecraft/item";
+import { Item, ItemStack, ItemValueOperation } from "kubejs_ts/types/minecraft/item";
 import {
   getItems,
   getItem,
@@ -14,12 +8,23 @@ import {
   tagHasItem,
   isTagId,
   itemExists,
-  tagId,
+  toTagId,
 } from "../minecraft/item";
 import { applyTagValueModifier } from "./config/economy";
-import { logProgress } from "../minecraft/logs";
+import { logProgress } from "../logs";
+import { clearObject } from "../object";
+import { saveJson, tryLoadJson } from "../files";
+import { setKubeJsLoadingStatus } from "./bridge";
 
 export function priceItems() {
+  if (
+    tryLoadJson(
+      "kubejs/exported/server/economy_cost_items.json",
+      "EconomyItemCosts",
+      global.economyItemCosts,
+    )
+  )
+    return;
   console.infof("[Economy] Pricing items...");
   clearObject(global.economyItemCosts);
 
@@ -44,7 +49,7 @@ export function priceItems() {
       return cache[input.id]?.value ?? getItemValue(input.id);
     }
 
-    const tag = tagId(`#${input.id}`);
+    const tag = toTagId(`#${input.id}`);
     if (!isTagId(tag)) return 0;
 
     const tagItems = getItems(tag);
@@ -69,16 +74,14 @@ export function priceItems() {
       }
 
       try {
-        return tagId(`#${inputId}`);
-      } catch {
+        return toTagId(`#${inputId}`);
+      } catch (e) {
+        console.errorf(String(e));
         return null;
       }
     }
 
-    function inputMatchesModifierTag(
-      tag: TagId,
-      inputStack: ItemStack,
-    ): boolean {
+    function inputMatchesModifierTag(tag: TagId, inputStack: ItemStack): boolean {
       if (tagHasItem(tag, inputStack.id)) {
         return true;
       }
@@ -93,26 +96,18 @@ export function priceItems() {
           const inputRecipeInputModifiers = modifier.recipes?.inputs;
           if (!inputRecipeInputModifiers) return;
 
-          Object.entries(inputRecipeInputModifiers).forEach(
-            ([tag, valueModifier]) => {
-              if (
-                tag == "all" ||
-                inputMatchesModifierTag(tag as TagId, input)
-              ) {
-                const modifiedValue = applyTagValueModifier(
-                  value * input.count,
-                  valueModifier,
-                );
+          Object.entries(inputRecipeInputModifiers).forEach(([tag, valueModifier]) => {
+            if (tag == "all" || inputMatchesModifierTag(tag as TagId, input)) {
+              const modifiedValue = applyTagValueModifier(value * input.count, valueModifier);
 
-                registerItemValueChange(item.id, {
-                  by: `${input.id} + ${tag}`,
-                  type: "Modifier",
-                  change: ItemValueOperation.add,
-                  amount: modifiedValue,
-                });
-              }
-            },
-          );
+              registerItemValueChange(item.id, {
+                by: `${input.id} + ${tag}`,
+                type: "Modifier",
+                change: ItemValueOperation.add,
+                amount: modifiedValue,
+              });
+            }
+          });
         });
       });
     } else {
@@ -136,7 +131,7 @@ export function priceItems() {
   > = {};
   const items = Object.values(global.items);
   items.forEach((item, index) => {
-    logProgress("ItemPrices", index, items.length);
+    logProgress("Pricing Items", index, items.length);
     cache[item.id] = {
       value: getItemValue(item.id),
       needsUpdate: true,
@@ -146,7 +141,7 @@ export function priceItems() {
   });
   for (let i = 0; i < 3; i++) {
     items.forEach((item, index) => {
-      logProgress("ItemPrices", index + items.length * i, items.length * 3);
+      logProgress("Propagating Prices", index + items.length * i, items.length * 3);
       const cachedItem = cache[item.id];
       if (!cachedItem || cachedItem.value != 0) return;
 
@@ -180,14 +175,9 @@ export function priceItems() {
       });
     });
 
-    const missingPricing = Object.entries(cache).filter(
-      (entry) => entry[1].value == 0,
-    );
+    const missingPricing = Object.entries(cache).filter((entry) => entry[1].value == 0);
     console.infof(`[Economy] ${missingPricing.length} items without value`);
-    JsonIO.write(
-      "kubejs/exported/server/cache.json",
-      JSON.parse(JSON.stringify(cache, null, 2)),
-    );
+    JsonIO.write("kubejs/exported/server/cache.json", JSON.parse(JSON.stringify(cache, null, 2)));
     JsonIO.write(
       "kubejs/exported/server/price_missing.json",
       JSON.parse(
@@ -221,9 +211,7 @@ export function priceItems() {
   });
 
   Object.values(global.items).forEach((item) => {
-    const recipeCalculations = item.valueChanges.filter(
-      (entry) => entry.type === "Recipe Input",
-    );
+    const recipeCalculations = item.valueChanges.filter((entry) => entry.type === "Recipe Input");
     if (recipeCalculations.length > 0) {
       let value = 0;
       recipeCalculations.forEach((entry) => {
@@ -252,10 +240,8 @@ export function priceItems() {
     };
   });
 
-  JsonIO.write(
-    "kubejs/exported/server/economy_cost_items.json",
-    JSON.parse(JSON.stringify(global.economyItemCosts, null, 2)),
-  );
+  setKubeJsLoadingStatus(false, "", 1);
+  saveJson("kubejs/exported/server/economy_cost_items.json", global.economyItemCosts);
 }
 
 export function isItemId(value: string): value is ItemId {

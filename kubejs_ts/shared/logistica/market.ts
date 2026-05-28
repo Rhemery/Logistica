@@ -1,9 +1,11 @@
 import { ItemId, TagId } from "kubejs_ts/types/minecraft";
 import { Item } from "kubejs_ts/types/minecraft/item";
 import { MarketEntry } from "kubejs_ts/types/logistica/logistics";
-import { tagId } from "../minecraft/item";
-import { clearObject } from "../minecraft";
-import { logProgress } from "../minecraft/logs";
+import { logProgress } from "../logs";
+import { toTagId } from "../minecraft/item";
+import { clearObject } from "../object";
+import { saveJson, tryLoadJson } from "../files";
+import { setKubeJsLoadingStatus } from "./bridge";
 
 const MINING_TAG_PARTS = [
   "ores",
@@ -50,7 +52,7 @@ function computeMarkets(itemId: ItemId, item: Item): string[] {
 
   if (
     hasTagPart(item, VILLAGE_TAG_PARTS) ||
-    hasExactTag(item, tagId("#minecraft:villager_plantable_seeds"))
+    hasExactTag(item, toTagId("#minecraft:villager_plantable_seeds"))
   ) {
     markets.add("village");
   }
@@ -67,46 +69,38 @@ function computeMarkets(itemId: ItemId, item: Item): string[] {
 }
 
 export function buildMarketEntries(): Record<ItemId, MarketEntry> {
+  if (
+    tryLoadJson(
+      "kubejs/exported/server/market_entries.json",
+      "Market Entries",
+      global.marketEntries,
+    )
+  )
+    return global.marketEntries;
   if (Object.keys(global.economyItemCosts).length == 0) {
-    console.errorf(
-      "[Economy] buildMarketEntries() depends on loadItems(), but no items found.",
-    );
+    console.errorf("[Economy] buildMarketEntries() depends on loadItems(), but no items found.");
   }
   console.infof("[Economy] Building market...");
   clearObject(global.marketEntries);
 
-  Object.entries(global.economyItemCosts).forEach(
-    ([rawItemId, cost], index) => {
-      logProgress(
-        "ItemPrices",
-        index,
-        Object.keys(global.economyItemCosts).length,
-      );
-      const itemId = rawItemId as ItemId;
-      const item = global.items[itemId];
-      if (!item || !cost) return;
+  Object.entries(global.economyItemCosts).forEach(([rawItemId, cost], index) => {
+    logProgress("Economy Entries", index, Object.keys(global.economyItemCosts).length);
+    const itemId = rawItemId as ItemId;
+    const item = global.items[itemId];
+    if (!item || !cost) return;
 
-      const sellPrice = Math.max(
-        1,
-        Math.floor(cost.sellPrice || cost.value || 0),
-      );
-      const buyPrice = Math.max(
-        sellPrice,
-        Math.ceil(cost.buyPrice || sellPrice),
-      );
+    const sellPrice = Math.max(1, Math.floor(cost.sellPrice || cost.value || 0));
+    const buyPrice = Math.max(sellPrice, Math.ceil(cost.buyPrice || sellPrice));
 
-      global.marketEntries[itemId] = {
-        sellPrice,
-        buyPrice,
-        markets: computeMarkets(itemId, item),
-      };
-    },
-  );
+    global.marketEntries[itemId] = {
+      sellPrice,
+      buyPrice,
+      markets: computeMarkets(itemId, item),
+    };
+  });
 
-  JsonIO.write(
-    "kubejs/exported/server/market_entries.json",
-    JSON.parse(JSON.stringify(global.marketEntries, null, 2)),
-  );
+  setKubeJsLoadingStatus(false, "", 1);
+  saveJson("kubejs/exported/server/market_entries.json", global.marketEntries);
 
   return global.marketEntries;
 }

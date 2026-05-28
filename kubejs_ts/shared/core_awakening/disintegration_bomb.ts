@@ -1,5 +1,7 @@
 import {
   DISINTEGRATION_BOMB_ARM_SOUND,
+  DISINTEGRATION_BOMB_BEEP_RATE_END,
+  DISINTEGRATION_BOMB_BEEP_RATE_START,
   DISINTEGRATION_BOMB_BLOCK_ID,
   DISINTEGRATION_BOMB_CHAIN_FUSE_TICKS,
   DISINTEGRATION_BOMB_ENTITY_ID,
@@ -11,35 +13,69 @@ import {
 import { $MinecraftServer } from "@package/net/minecraft/server";
 import { $Entity } from "@package/net/minecraft/world/entity";
 import { $Level } from "@package/net/minecraft/world/level";
+import { INSERT_CELL_SOUND } from "./config/corruption";
+import { toPlainNumber } from "../math";
+import { playSound } from "../minecraft/sound";
 
 const DISINTEGRATION_BOMB_TAG = "kjs_disintegration_bomb";
 const DISINTEGRATION_BOMB_FUSE_NBT_KEY = "kjs_disintegration_bomb_fuse_ticks";
+const DISINTEGRATION_BOMB_INITIAL_FUSE_NBT_KEY =
+  "kjs_disintegration_bomb_initial_fuse_ticks";
+const DISINTEGRATION_BOMB_FUSE_TICK_NEXT_KEY =
+  "kjs_disintegration_bomb_fuse_tick_next_tick";
+const DISINTEGRATION_BOMB_FUSE_TICK_NEXT_REMAINING_KEY =
+  "kjs_disintegration_bomb_fuse_tick_next_remaining";
 const DISINTEGRATION_BOMB_GRAVITY = 0.04;
-const DISINTEGRATION_BOMB_AIR_DRAG = 0.98;
+const DISINTEGRATION_BOMB_AIR_DRAG = 0.985;
 const DISINTEGRATION_BOMB_GROUND_DRAG = 0.7;
 const DISINTEGRATION_BOMB_BOUNCE = 0.35;
 const DISINTEGRATION_BOMB_TERMINAL_VELOCITY = -2;
+const DISINTEGRATION_BOMB_TICKS_PER_SECOND = 20;
+const DISINTEGRATION_BOMB_MIN_BEEP_RATE = 0.05;
 
-function toCommandNumber(value: number): string {
-  return Number.isInteger(value) ? `${value}` : value.toFixed(2);
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
-function playBombSound(
-  level: $Level,
-  soundId: string,
-  x: number,
-  y: number,
-  z: number,
-  volume: number,
-  pitch: number,
-): void {
-  const sx = toCommandNumber(x);
-  const sy = toCommandNumber(y);
-  const sz = toCommandNumber(z);
-
-  level.runCommandSilent(
-    `playsound ${soundId} block @a[x=${sx},y=${sy},z=${sz},distance=..${DISINTEGRATION_BOMB_SOUND_RADIUS}] ${sx} ${sy} ${sz} ${volume} ${pitch}`,
+function toBeepIntervalTicks(beepRatePerSecond: number): number {
+  const safeRate = Math.max(
+    DISINTEGRATION_BOMB_MIN_BEEP_RATE,
+    beepRatePerSecond,
   );
+  return Math.max(
+    1,
+    Math.round(DISINTEGRATION_BOMB_TICKS_PER_SECOND / safeRate),
+  );
+}
+
+function getBeepIntervalTicks(
+  remainingFuse: number,
+  initialFuse: number,
+): number {
+  const safeInitialFuse = Math.max(1, Math.floor(initialFuse));
+  const progress = clamp(1 - remainingFuse / safeInitialFuse, 0, 1);
+
+  const startInterval = toBeepIntervalTicks(
+    DISINTEGRATION_BOMB_BEEP_RATE_START,
+  );
+  const endInterval = toBeepIntervalTicks(DISINTEGRATION_BOMB_BEEP_RATE_END);
+  const interpolated =
+    startInterval + (endInterval - startInterval) * (progress + 0.01);
+
+  return Math.max(1, Math.round(interpolated));
+}
+
+function playServerTickSound(entity: $Entity, fuseProgress: number): void {
+  playSound(entity.getLevel(), DISINTEGRATION_BOMB_ARM_SOUND, {
+    source: "block",
+    x: entity.getX(),
+    y: entity.getY(),
+    z: entity.getZ(),
+    distance: DISINTEGRATION_BOMB_SOUND_RADIUS,
+    volume: 1,
+    pitch: 1,
+    minVolume: Math.pow(fuseProgress, 2),
+  });
 }
 
 export function isDisintegrationBombIgniter(itemId: string): boolean {
@@ -56,7 +92,7 @@ function readVec3Component(value: unknown, axis: "x" | "y" | "z"): number {
 
   const member = raw[axis];
   if (typeof member === "function") {
-    const numeric = Number(member.call(raw));
+    const numeric = toPlainNumber(member.call(raw), 0);
     return Number.isFinite(numeric) ? numeric : 0;
   }
 
@@ -114,19 +150,30 @@ function explodeBombEntity(entity: $Entity): void {
   const y = entity.getY();
   const z = entity.getZ();
 
-  entity.discard();
-
   level.explode(x, y, z, {
     strength: DISINTEGRATION_BOMB_EXPLOSION_STRENGTH,
     causesFire: false,
     mode: "tnt",
+    particles: true,
   });
 
-  playBombSound(level, DISINTEGRATION_BOMB_EXPLODE_SOUND, x, y, z, 1.5, 1);
+  playSound(level, DISINTEGRATION_BOMB_EXPLODE_SOUND, {
+    source: "block",
+    x,
+    y,
+    z,
+    distance: 200,
+    volume: 4,
+    pitch: 1,
+    minVolume: 0.75,
+  });
+
+  entity.discard();
 }
 
 function initializeBombEntity(entity: $Entity, fuseTicks: number): void {
   const clampedFuse = Math.max(1, Math.floor(fuseTicks));
+  const initialBeepInterval = getBeepIntervalTicks(clampedFuse, clampedFuse);
   const randomAngle = Math.random() * Math.PI * 2;
   const horizontalSpeed = 0.02;
   const motionX = -Math.sin(randomAngle) * horizontalSpeed;
@@ -134,6 +181,18 @@ function initializeBombEntity(entity: $Entity, fuseTicks: number): void {
 
   entity.addTag(DISINTEGRATION_BOMB_TAG);
   entity.persistentData.putInt(DISINTEGRATION_BOMB_FUSE_NBT_KEY, clampedFuse);
+  entity.persistentData.putInt(
+    DISINTEGRATION_BOMB_INITIAL_FUSE_NBT_KEY,
+    clampedFuse,
+  );
+  entity.persistentData.putInt(
+    DISINTEGRATION_BOMB_FUSE_TICK_NEXT_KEY,
+    initialBeepInterval,
+  );
+  entity.persistentData.putInt(
+    DISINTEGRATION_BOMB_FUSE_TICK_NEXT_REMAINING_KEY,
+    initialBeepInterval,
+  );
   entity.setNoGravity(false);
   entity.setMotion(motionX, 0.2, motionZ);
   entity.hasImpulse = true;
@@ -158,27 +217,28 @@ export function armDisintegrationBomb(
   initializeBombEntity(primed, fuseTicks);
   level.addFreshEntity(primed);
 
-  playBombSound(
-    level,
-    DISINTEGRATION_BOMB_ARM_SOUND,
-    x + 0.5,
-    y + 0.5,
-    z + 0.5,
-    1.35,
-    1,
-  );
+  playServerTickSound(primed, 1);
+
+  playSound(level, INSERT_CELL_SOUND, {
+    source: "block",
+    x,
+    y,
+    z,
+    volume: 1,
+    pitch: 1,
+  });
 
   return true;
 }
 
-export function tickDisintegrationBombs(server: $MinecraftServer): void {
+export function tickDisintegrationBombsServer(server: $MinecraftServer): void {
   const entities = server.getEntities();
 
   entities.forEach((entity) => {
     if (!entity.isAlive()) return;
-    if (!isBombEntity(entity as $Entity)) return;
+    if (!isBombEntity(entity)) return;
 
-    const bomb = entity as $Entity;
+    const bomb = entity;
     if (bomb.getLevel().isClientSide()) return;
 
     applyBombPhysics(bomb);
@@ -191,13 +251,69 @@ export function tickDisintegrationBombs(server: $MinecraftServer): void {
       );
     }
 
+    if (!bombData.contains(DISINTEGRATION_BOMB_INITIAL_FUSE_NBT_KEY)) {
+      bombData.putInt(
+        DISINTEGRATION_BOMB_INITIAL_FUSE_NBT_KEY,
+        Math.max(1, bombData.getInt(DISINTEGRATION_BOMB_FUSE_NBT_KEY)),
+      );
+    }
+
+    const initialFuse = Math.max(
+      1,
+      bombData.getInt(DISINTEGRATION_BOMB_INITIAL_FUSE_NBT_KEY),
+    );
+
+    if (!bombData.contains(DISINTEGRATION_BOMB_FUSE_TICK_NEXT_KEY)) {
+      const fallbackFuse = Math.max(
+        1,
+        bombData.getInt(DISINTEGRATION_BOMB_FUSE_NBT_KEY),
+      );
+      const fallbackInterval = getBeepIntervalTicks(fallbackFuse, initialFuse);
+      bombData.putInt(DISINTEGRATION_BOMB_FUSE_TICK_NEXT_KEY, fallbackInterval);
+    }
+
+    if (!bombData.contains(DISINTEGRATION_BOMB_FUSE_TICK_NEXT_REMAINING_KEY)) {
+      const fallbackFuse = Math.max(
+        1,
+        bombData.getInt(DISINTEGRATION_BOMB_FUSE_NBT_KEY),
+      );
+      const fallbackInterval = getBeepIntervalTicks(fallbackFuse, initialFuse);
+      bombData.putInt(
+        DISINTEGRATION_BOMB_FUSE_TICK_NEXT_REMAINING_KEY,
+        fallbackInterval,
+      );
+    }
+
     const remainingFuse = bombData.getInt(DISINTEGRATION_BOMB_FUSE_NBT_KEY) - 1;
     bombData.putInt(DISINTEGRATION_BOMB_FUSE_NBT_KEY, remainingFuse);
+
+    const beepRemaining =
+      bombData.getInt(DISINTEGRATION_BOMB_FUSE_TICK_NEXT_REMAINING_KEY) - 1;
+    bombData.putInt(
+      DISINTEGRATION_BOMB_FUSE_TICK_NEXT_REMAINING_KEY,
+      beepRemaining,
+    );
+
+    const fuseProgress = 1 - remainingFuse / initialFuse;
+    if (remainingFuse > 0 && beepRemaining <= 0) {
+      const nextInterval = getBeepIntervalTicks(remainingFuse, initialFuse);
+      bombData.putInt(DISINTEGRATION_BOMB_FUSE_TICK_NEXT_KEY, nextInterval);
+      bombData.putInt(
+        DISINTEGRATION_BOMB_FUSE_TICK_NEXT_REMAINING_KEY,
+        nextInterval,
+      );
+      playServerTickSound(bomb, fuseProgress);
+    }
 
     if (remainingFuse <= 0) {
       explodeBombEntity(bomb);
     }
   });
+}
+
+export function tickDisintegrationBombsClient(_level: $Level): void {
+  void _level;
+  // Disabled for now. EntityJS synced-data mutation is not safe on nonliving entities.
 }
 
 export function armChainDisintegrationBomb(

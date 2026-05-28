@@ -1,5 +1,7 @@
+import { $Object } from "@package/java/lang";
 import {
   Block,
+  Item,
   EntityType,
   SoundEvent,
 } from "@side-only/startup/events/registry/index";
@@ -68,20 +70,33 @@ export function registerEntityTypes(event: EntityType) {
     .clientTrackingRange(10)
     .updateInterval(1)
     .modelResource(
-      () => "kubejs:geo/entity/disintegration_bomb.geo.json" as any,
+      () =>
+        "kubejs:geo/entity/disintegration_bomb.geo.json" as unknown as $Object,
     )
     .textureResource(
-      () => "kubejs:textures/entity/disintegration_bomb.png" as any,
+      () =>
+        "kubejs:textures/entity/disintegration_bomb.png" as unknown as $Object,
     )
     .animationResource(
       () =>
-        "kubejs:animations/entity/disintegration_bomb.animation.json" as any,
+        "kubejs:animations/entity/disintegration_bomb.animation.json" as unknown as $Object,
     )
     .setSummonable(true)
     .displayName("Disintegration Bomb");
 }
 
+export function registerItems(event: Item) {
+  event
+    .create("purity_cell")
+    .displayName("Purity Cell")
+    .unstackable()
+    .rarity("epic")
+    .texture("kubejs:item/purity_cell");
+}
+
 export function registerSoundEffects(event: SoundEvent) {
   event.create("disintegration_bomb_armed");
   event.create("disintegration_bomb_explode");
+  event.create("insert_cell");
+  event.create("node_pulse");
 }

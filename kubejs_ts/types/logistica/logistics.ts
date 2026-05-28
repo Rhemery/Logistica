@@ -40,21 +40,8 @@ export type ExcavationChunkState = {
   dimension: string;
   chunkX: number;
   chunkZ: number;
-  biomeId: string;
-  richness: number;
   empty: boolean;
   resources: ExcavationResourceShare[];
-};
-
-export type ExcavationResourceDefinition = {
-  itemId: ItemId;
-  baseWeight: number;
-  noiseScale: number;
-  minNoise: number;
-  minAmount: number;
-  maxAmount: number;
-  whitelistBiomeKeywords: string[];
-  blacklistBiomeKeywords: string[];
 };
 
 export type VillageDemandOrder = {

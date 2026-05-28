@@ -11,10 +11,10 @@ import {
   MarketTerminalState,
 } from "kubejs_ts/types/logistica/logistics";
 import { OUTPOST_PLACE_RULES } from "../logistica/config/outposts";
-import { itemId } from "../minecraft/item";
-import { compressCoins } from "../minecraft/utils";
 import { getOutpostOwner, isOutpostPlaceable, OutpostOwner } from "./outpost";
-import { getRuntimeState, persistRuntimeState } from "../minecraft/runtime";
+import { Logistica } from "./runtime";
+import { toItemId } from "../minecraft/item";
+import { compressMoney } from "../minecraft/utils";
 
 // Change this per block later if you create more terminals.
 // For now, one terminal = mining depot.
@@ -50,7 +50,7 @@ function trySellInventory(inv: $InventoryKJS, player: $Player, market: string) {
 
     if (!stack || stack.empty) continue;
 
-    const id = itemId(stack.id);
+    const id = toItemId(stack.id);
     const entry = marketEntries[id];
     if (!entry) continue;
 
@@ -70,7 +70,7 @@ function trySellInventory(inv: $InventoryKJS, player: $Player, market: string) {
   }
 
   if (total > 0) {
-    const money = compressCoins(total);
+    const money = compressMoney(total);
     money.forEach((coin) => {
       player.give({
         id: coin.id,
@@ -94,7 +94,7 @@ export function addOrGetMarketTerminal(
   block: $LevelBlock,
   owner: OutpostOwner,
 ): MarketTerminalState {
-  const state = getRuntimeState();
+  const state = Logistica.Runtime.getServerState();
   const ref = toStationRef(block);
   const existing = state.marketTerminals.find((entry) => entry.key === ref.key);
   if (existing) return existing;
@@ -110,7 +110,7 @@ export function addOrGetMarketTerminal(
   };
 
   state.marketTerminals.push(created);
-  persistRuntimeState(server);
+  Logistica.Runtime.saveServerState(server);
   return created;
 }
 
@@ -127,7 +127,7 @@ BlockEvents.placed(MARKET_TERMINAL_BLOCK_ID, (event) => {
     return;
   }
 
-  const state = getRuntimeState();
+  const state = Logistica.Runtime.getServerState();
   const result = isOutpostPlaceable(
     {
       event,

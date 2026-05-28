@@ -12,7 +12,7 @@ import {
   handlePurityRefineryPlacement,
   removePurityRefinery,
 } from "kubejs_ts/shared/core_awakening/corruption";
-import { createCore } from "kubejs_ts/shared/core_awakening/core";
+import { CoreAwakening } from "kubejs_ts/shared/core_awakening/runtime";
 import {
   DISINTEGRATION_BOMB_BLOCK_ID,
   DISINTEGRATION_BOMB_DEFAULT_FUSE_TICKS,
@@ -59,9 +59,11 @@ ItemEvents.foodEaten((event) => {
 });
 
 EntityEvents.spawned((event) => {
-  if (event.entity.isLiving()) {
-    createCore(event.entity);
-  }
+  if (event.level.isClientSide()) return;
+  if (!event.entity.isLiving()) return;
+
+  CoreAwakening.Runtime.loadEntityState(event.entity);
+  CoreAwakening.Runtime.saveEntityState(event.entity);
 });
 
 BlockEvents.rightClicked(DISINTEGRATION_BOMB_BLOCK_ID, (event) => {

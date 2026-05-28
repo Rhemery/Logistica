@@ -1,6 +1,6 @@
 import { $LevelBlock } from "@package/dev/latvian/mods/kubejs/level";
-import { getRuntimeState, persistRuntimeState } from "../minecraft/runtime";
 import { $MinecraftServer } from "@package/net/minecraft/server";
+import { Logistica } from "./runtime";
 
 export function stationKey(
   dimension: string,
@@ -27,7 +27,7 @@ export function toStationRef(block: $LevelBlock) {
 }
 
 export function removeStation(server: $MinecraftServer, key: string): void {
-  const state = getRuntimeState();
+  const state = Logistica.Runtime.getServerState();
   state.marketTerminals = state.marketTerminals.filter(
     (entry) => entry.key !== key,
   );
@@ -38,5 +38,5 @@ export function removeStation(server: $MinecraftServer, key: string): void {
     (entry) => entry.key !== key,
   );
   state.hubs = state.hubs.filter((entry) => entry.key !== key);
-  persistRuntimeState(server);
+  Logistica.Runtime.saveServerState(server);
 }
