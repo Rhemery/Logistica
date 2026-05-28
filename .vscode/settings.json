@@ -188,5 +188,17 @@
     "typescript.tsserver.maxTsServerMemory": 4096,
     "typescript.disableAutomaticTypeAcquisition": true,
     "typescript.surveys.enabled": false,
-    "typescript.validate.enable": false
+    "typescript.validate.enable": false,
+
+    "java.compile.nullAnalysis.mode": "automatic",
+
+    "prettier.prettierPath": "./node_modules/prettier/index.cjs",
+    "prettier.documentSelectors": [
+      "**/*.{js,cjs,mjs,jsx,ts,java}"
+    ],
+
+    "[java]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.formatOnSave": true
+    }
 }
