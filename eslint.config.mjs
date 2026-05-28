@@ -30,7 +30,7 @@ export default defineConfig(
       parserOptions: {
         projectService: {
           // allows configuration files (such as this file) to be linted even if it's not listed in the tsconfig.json
-          allowDefaultProject: ["*.mjs", "*.js"],
+          //allowDefaultProject: ["**/*.mjs", "**/*.js"],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -78,8 +78,12 @@ export default defineConfig(
       "@typescript-eslint/no-unsafe-argument": "off",
       "@typescript-eslint/no-unnecessary-condition": "off",
       "@typescript-eslint/no-dynamic-delete": "off",
+      "@typescript-eslint/no-namespace": "off",
+      "@typescript-eslint/no-unnecessary-type-parameters": "off",
+      "@typescript-eslint/no-confusing-void-expression": "off",
+      "@typescript-eslint/no-unnecessary-type-assertion": "off",
     },
-    allowDefaultProject: ["*.mjs", "*.ts", "scripts/*.ts"],
+    //allowDefaultProject: [".js", "*.mjs", "*.ts", "scripts/*.ts"],
   },
 
   // Disable rules that would conflict with prettier

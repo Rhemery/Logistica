@@ -1,9 +1,13 @@
 {
   "scripts": {
-    "typecheck": "tsc -b",
+    "typecheck:client": "node scripts/typecheck.mjs kubejs_ts/client/tsconfig.json",
+    "typecheck:server": "node scripts/typecheck.mjs kubejs_ts/server/tsconfig.json",
+    "typecheck:shared": "node scripts/typecheck.mjs kubejs_ts/shared/tsconfig.json",
+    "typecheck:startup": "node scripts/typecheck.mjs kubejs_ts/startup/tsconfig.json",
+    "typecheck": "npm run typecheck:client && npm run typecheck:server && npm run typecheck:shared && npm run typecheck:startup",
     "lint": "eslint kubejs_ts",
     "check": "npm run typecheck && npm run lint",
-    "build": "node build-kubejs.mjs",
+    "build": "node scripts/build-all.mjs",
     "recipes:schema": "tsx ./scripts/create-schemas.mjs",
     "scan:worldgen": "tsx ./scripts/scan-worldgen.ts",
     "generate:textures": "tsx ./scripts/generator.ts",
@@ -27,6 +31,7 @@
     "globals": "^17.5.0",
     "pngjs": "^7.0.0",
     "prettier": "^3.8.3",
+    "prettier-plugin-java": "^2.9.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.0"
   }

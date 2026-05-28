@@ -1,13 +1,7 @@
 // build-kubejs.mjs
 import { build } from "esbuild";
 import fg from "fast-glob";
-import {
-  rmSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  copyFileSync,
-} from "node:fs";
+import { rmSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
 import * as babel from "@babel/core";
 import path from "node:path";
 
@@ -68,17 +62,17 @@ const scriptGroups = [
 const jsonGroups = [
   {
     name: "startup",
-    pattern: "kubejs_ts/startup/exported/*.json",
+    pattern: "kubejs_ts/startup/exported/*.*",
     outdir: "kubejs/exported/startup",
   },
   {
     name: "server",
-    pattern: "kubejs_ts/server/exported/*.json",
+    pattern: "kubejs_ts/server/exported/*.*",
     outdir: "kubejs/exported/server",
   },
   {
     name: "client",
-    pattern: "kubejs_ts/client/exported/*.json",
+    pattern: "kubejs_ts/client/exported/*.*",
     outdir: "kubejs/exported/client",
   },
 ];
@@ -104,6 +98,8 @@ for (const group of scriptGroups) {
     alias: {
       "kubejs_ts/shared": "./kubejs_ts/shared",
       "kubejs_ts/types": "./kubejs_ts/types",
+      "@package/net/minecraft/core/registries":
+        "./.probe/@package/net/minecraft/core/registries/index.d.ts",
     },
 
     // Critical for KubeJS: removes TS import/export from final files.
@@ -113,7 +109,7 @@ for (const group of scriptGroups) {
     format: "iife",
 
     platform: "neutral",
-    target: "es6",
+    target: "ES2022",
 
     sourcemap: false,
     minify: false,
@@ -125,11 +121,6 @@ for (const group of scriptGroups) {
 
     // Keeps folder structure under startup/server/client.
     outbase: `kubejs_ts/${group.name}`,
-
-    supported: {
-      "object-rest-spread": false,
-      "array-spread": false,
-    },
 
     banner: {
       js: `// Generated from ${group.pattern}. Do not edit manually.`,
@@ -148,15 +139,22 @@ for (const group of scriptGroups) {
       compact: false,
       comments: false,
       plugins: [
+        uniqueVarNamesPlugin,
+        "@babel/plugin-transform-shorthand-properties",
+        "@babel/plugin-transform-object-rest-spread",
         "@babel/plugin-transform-parameters",
         "@babel/plugin-transform-block-scoping",
-        "@babel/plugin-transform-for-of",
-
-        uniqueVarNamesPlugin,
-
-        "@babel/plugin-transform-shorthand-properties",
         "@babel/plugin-transform-spread",
-        "@babel/plugin-transform-object-rest-spread",
+        /*
+        "@babel/plugin-transform-spread",
+        ,
+        ,
+        "@babel/plugin-transform-for-of",
+        ,*/
+
+        //,
+
+        //,
       ],
     });
 
@@ -196,6 +194,8 @@ for (const group of jsonGroups) {
   console.log(`[${group.name}] Copying ${entryPoints} file(s)...`);
   for (const entryPoint of entryPoints) {
     const targetDir = path.basename(entryPoint);
+    if (existsSync(`${group.outdir}/${targetDir}`)) continue;
+
     copyFileSync(entryPoint, `${group.outdir}/${targetDir}`);
   }
 

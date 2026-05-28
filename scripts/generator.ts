@@ -4,8 +4,8 @@
   What it does:
   - scans vanilla + mod assets from jars or directories
   - finds simple item models and simple blockstates/models
-  - generates corrupted PNG variants
-  - generates block model JSON files for corrupted blocks
+  - generates dead + corrupted PNG variants
+  - generates block model JSON files for generated block variants
   - generates TypeScript startup scripts for KubeJS block/item registration
   - writes a report.json with processed / skipped assets
 
@@ -43,8 +43,93 @@ type ParentModel =
 type SourceKind = "dir" | "zip";
 
 type CandidateKind = "item" | "block";
+type BlockVariantStage = "dead" | "corrupted";
 
 type SupportedBlockParent = string;
+type BlockRenderType = "cutout" | "cutout_mipped";
+type ConversionDirection = "up" | "down" | "both";
+type DeadVariantConversionMode = "none" | "insert";
+
+type BlockTextureKeyResolver = (textures: Record<string, string>) => string[];
+
+type BlockTextureKeyConfig = readonly string[] | BlockTextureKeyResolver;
+
+interface BlockParentDefinition {
+  enabled: boolean;
+  requiredTextureKeys: BlockTextureKeyConfig;
+  renderType?: BlockRenderType;
+  usePlantSettings?: boolean;
+  useSourceModelAsParent?: boolean;
+}
+
+interface BlockConversionOverride {
+  from: string;
+  to: string | null;
+  direction?: ConversionDirection;
+}
+
+interface BlockDeadVariantOverride {
+  source: string;
+  // "insert": source -> dead -> corrupted chain.
+  // "none": source -> corrupted chain (dead block can still be generated).
+  conversionMode?: DeadVariantConversionMode;
+}
+
+type BlockDeadVariantOverrideEntry = string | BlockDeadVariantOverride;
+
+interface DeadVariantConfig {
+  enabled: boolean;
+  displayPrefix: string;
+  registryPrefix: string;
+  defaultConversionMode: DeadVariantConversionMode;
+  // Sample textures used to derive a dead-tone color profile automatically.
+  referenceTexturePaths: string[];
+  // Used if no reference textures could be read.
+  fallbackTintColor: number;
+  desaturate: number;
+  contrast: number;
+  brightness: number;
+}
+
+interface BlockRegistrationTintConfig {
+  color: number;
+  tintIndices: number[];
+}
+
+interface BlockRegistrationKeywordSoundRule {
+  keyword: string;
+  soundType: string;
+}
+
+interface BlockRegistrationKeywordTintRule {
+  keyword: string;
+  color: number;
+  tintIndices: number[];
+}
+
+interface BlockRegistrationOverride {
+  soundType?: string;
+  tintColor?: number;
+  tintIndices?: number[];
+  renderType?: BlockRenderType | null;
+  usePlantSettings?: boolean;
+  copyPropertiesFrom?: boolean;
+}
+
+interface BlockRegistrationConfig {
+  emitTintCallbacks: boolean;
+  bakeTintedTextures: boolean;
+  copyPropertiesFromSource: boolean;
+  copyPropertiesFromSafeOnly: boolean;
+  applyPrototypeSnapshot: boolean;
+  prototypeSnapshotPath?: string;
+  defaultSoundType: string;
+  soundTypeByParent: Record<string, string>;
+  soundTypeKeywordRules: BlockRegistrationKeywordSoundRule[];
+  tintByParent: Record<string, BlockRegistrationTintConfig>;
+  tintKeywordRules: BlockRegistrationKeywordTintRule[];
+  overrides: Record<string, BlockRegistrationOverride>;
+}
 
 interface CorruptionOverlayConfig {
   path: string;
@@ -86,6 +171,10 @@ interface GeneratorConfig {
     enabled: boolean;
     supportedParents: SupportedBlockParent[];
     supportedIds: string[];
+    registration: BlockRegistrationConfig;
+    deadVariant: DeadVariantConfig;
+    deadVariantOverrides: Record<string, BlockDeadVariantOverrideEntry>;
+    conversionOverrides: BlockConversionOverride[];
   };
   corruptionLevels: CorruptionLevelConfig[];
   transform: {
@@ -112,6 +201,7 @@ interface AssetEntry {
 interface ResolvedModel {
   parentChain: string[];
   textures: Record<string, string>;
+  tintedTextureRefs: string[];
 }
 
 interface ItemCandidate {
@@ -127,15 +217,28 @@ interface ItemCandidate {
 
 interface BlockCandidate {
   kind: "block";
+  stage: BlockVariantStage;
   originalId: string;
   registryId: string;
   displayName: string;
   sourceNamespace: string;
   sourcePath: string;
+  sourceBlockId: string;
+  deadVariantConversionMode: DeadVariantConversionMode;
+  applyDeadVariantPrepass: boolean;
+  selectedParent: SupportedBlockParent;
   parentModel: SupportedBlockParent;
   textures: Record<string, string>;
+  tintedTextureKeys: string[];
   modelResourceLocation: string;
-  corruptionLevel: LoadedCorruptionLevel;
+  corruptionLevel?: LoadedCorruptionLevel;
+}
+
+interface DeadVariantColorProfile {
+  tint: { r: number; g: number; b: number };
+  desaturate: number;
+  contrast: number;
+  brightness: number;
 }
 
 interface Report {
@@ -145,7 +248,179 @@ interface Report {
   skippedBlocks: Array<{ id: string; reason: string }>;
 }
 
+interface BlockPrototypeSnapshotEntry {
+  id: string;
+  tags?: string[];
+  properties?: Array<{ name?: string }>;
+  flags?: {
+    requiresTool?: boolean;
+  };
+  stats?: {
+    destroySpeed?: number;
+    explosionResistance?: number;
+    friction?: number;
+    speedFactor?: number;
+    jumpFactor?: number;
+    lightEmission?: number;
+  };
+}
+
+interface BlockPrototypeSnapshotFile {
+  blocks?: BlockPrototypeSnapshotEntry[];
+}
+
+interface ResolvedBlockGenerationSource {
+  sourceBlockId: string;
+  sourceNamespace: string;
+  sourcePath: string;
+  selectedParent: SupportedBlockParent;
+  parentModel: SupportedBlockParent;
+  textures: Record<string, string>;
+  tintedTextureKeys: string[];
+}
+
+interface ResolvedBlockGenerationSourceResult {
+  source?: ResolvedBlockGenerationSource;
+  reason?: string;
+}
+
+// Add or edit block parent support in this single table.
+const BLOCK_PARENT_DEFINITIONS: Record<string, BlockParentDefinition> = {
+  "minecraft:block/cube_all": {
+    enabled: true,
+    requiredTextureKeys: ["all"],
+  },
+  "minecraft:block/cube_bottom_top": {
+    enabled: true,
+    requiredTextureKeys: ["side", "top", "bottom"],
+  },
+  "minecraft:block/cube_column": {
+    enabled: true,
+    requiredTextureKeys: ["side", "end"],
+  },
+  "minecraft:block/cube_column_horizontal": {
+    enabled: true,
+    requiredTextureKeys: ["side", "end"],
+  },
+  "minecraft:block/orientable": {
+    enabled: true,
+    requiredTextureKeys: ["front", "side", "top"],
+  },
+  "minecraft:block/cross": {
+    enabled: true,
+    requiredTextureKeys: ["cross"],
+    renderType: "cutout",
+    usePlantSettings: true,
+  },
+  "minecraft:block/tinted_cross": {
+    enabled: true,
+    requiredTextureKeys: ["cross"],
+    renderType: "cutout",
+    usePlantSettings: true,
+  },
+  "minecraft:block/template_seagrass": {
+    enabled: true,
+    requiredTextureKeys: ["texture"],
+    renderType: "cutout",
+    usePlantSettings: true,
+  },
+  "minecraft:block/leaves": {
+    enabled: true,
+    requiredTextureKeys: ["all"],
+    renderType: "cutout_mipped",
+  },
+  "minecraft:block/block": {
+    enabled: true,
+    requiredTextureKeys: getResolvableTextureKeys,
+    useSourceModelAsParent: true,
+  },
+};
+
+function getDefaultSupportedBlockParents(): SupportedBlockParent[] {
+  return Object.entries(BLOCK_PARENT_DEFINITIONS)
+    .filter(([, definition]) => definition.enabled)
+    .map(([parent]) => parent);
+}
+
+const DEFAULT_BLOCK_SOUND_BY_PARENT: Record<string, string> = {
+  "minecraft:block/leaves": "grass",
+  "minecraft:block/tinted_cross": "grass",
+  "minecraft:block/cross": "grass",
+  "minecraft:block/template_seagrass": "wet_grass",
+};
+
+const DEFAULT_BLOCK_SOUND_KEYWORD_GROUPS: Record<string, string[]> = {
+  grass: ["leaves", "grass", "sapling", "fern", "flower", "mushroom"],
+  crop: ["crop"],
+  roots: ["roots"],
+  vine: ["vine"],
+  wool: ["wool", "carpet"],
+  glass: ["glass", "ice"],
+  sand: ["sand"],
+  gravel: ["gravel"],
+  wood: ["wood", "log", "planks"],
+  bamboo: ["bamboo"],
+  stem: ["stem"],
+  nether_wood: ["hyphae"],
+  metal: ["metal", "iron", "gold"],
+  copper: ["copper"],
+  chain: ["chain"],
+  anvil: ["anvil"],
+  amethyst: ["amethyst"],
+};
+
+const DEFAULT_BLOCK_TINT_BY_PARENT: Record<string, BlockRegistrationTintConfig> = {
+  "minecraft:block/leaves": { color: 0x48b518, tintIndices: [0] },
+  "minecraft:block/tinted_cross": { color: 0x79c05a, tintIndices: [0] },
+  "minecraft:block/template_seagrass": { color: 0x79c05a, tintIndices: [0] },
+};
+
+const DEFAULT_BLOCK_TINT_KEYWORD_GROUPS: Array<{
+  keywords: string[];
+  color: number;
+  tintIndices: number[];
+}> = [
+  { keywords: ["leaves"], color: 0x48b518, tintIndices: [0] },
+  {
+    keywords: ["grass_block", "grass", "sapling", "fern", "vine", "seagrass"],
+    color: 0x79c05a,
+    tintIndices: [0],
+  },
+];
+
+function buildKeywordSoundRules(
+  groups: Record<string, string[]>,
+): BlockRegistrationKeywordSoundRule[] {
+  const out: BlockRegistrationKeywordSoundRule[] = [];
+  for (const [soundType, keywords] of Object.entries(groups)) {
+    for (const keyword of keywords) {
+      out.push({ keyword, soundType });
+    }
+  }
+  return out;
+}
+
+function buildKeywordTintRules(
+  groups: Array<{ keywords: string[]; color: number; tintIndices: number[] }>,
+): BlockRegistrationKeywordTintRule[] {
+  const out: BlockRegistrationKeywordTintRule[] = [];
+  for (const group of groups) {
+    for (const keyword of group.keywords) {
+      out.push({
+        keyword,
+        color: group.color,
+        tintIndices: group.tintIndices,
+      });
+    }
+  }
+  return out;
+}
+
 const version = "1.21.1";
+const outRoot = process.env.CORRUPTION_OUT_ROOT ?? "kubejs/assets";
+const tsOutDir =
+  process.env.CORRUPTION_TS_OUT_DIR ??
+  "kubejs_ts/startup/02_core_awakening";
 const CONFIG: GeneratorConfig = {
   // Order matters: later inputs override earlier inputs.
   // Put vanilla/client jar first, then mod jars or resource folders.
@@ -160,8 +435,8 @@ const CONFIG: GeneratorConfig = {
       `${version}.jar`,
     ),
   ],
-  outRoot: path.resolve("kubejs/assets"),
-  tsOutDir: path.resolve("kubejs_ts/startup/core_awakening/generated"),
+  outRoot: path.resolve(outRoot),
+  tsOutDir: path.resolve(tsOutDir),
   generatedNamespace: "coreawakening_generated",
   registryNamespace: "kubejs",
   includeNamespaces: undefined,
@@ -178,14 +453,79 @@ const CONFIG: GeneratorConfig = {
   },
   block: {
     enabled: true,
-    supportedParents: [
-      "minecraft:block/cube_all",
-      "minecraft:block/cube_bottom_top",
-      "minecraft:block/cube_column",
-      "minecraft:block/cube_column_horizontal",
-      "minecraft:block/orientable",
-    ],
+    supportedParents: getDefaultSupportedBlockParents(),
     supportedIds: [],
+    registration: {
+      // KubeJS 1.21.1 can produce missing-model rendering on some custom-model blocks
+      // when .color(...) is applied. Keep this off unless you verify it works.
+      emitTintCallbacks: false,
+      // Bake tint-index model colors (grass/leaves/etc.) directly into generated
+      // textures so blocks don't render gray without client color handlers.
+      bakeTintedTextures: true,
+      // Copy core behavior-related properties from the source block id.
+      // This is the closest KubeJS-side approximation to "same block, retextured".
+      copyPropertiesFromSource: true,
+      // Some vanilla blocks (e.g. logs with axis-dependent map color) crash when
+      // copied into a state-less KubeJS custom block.
+      // Keep this true to skip copyPropertiesFrom on stateful source blocks.
+      copyPropertiesFromSafeOnly: true,
+      // Optional runtime-generated snapshot to transfer per-block values/tags
+      // (hardness/resistance/light/tool-requirement/mineable tags).
+      applyPrototypeSnapshot: true,
+      prototypeSnapshotPath: path.resolve(
+        "kubejs/exported/server/core_awakening_block_snapshot.json",
+      ),
+      // Fallback used when no parent/id rule matches.
+      defaultSoundType: "stone",
+      // Parent-based defaults. Add/override keys here as needed.
+      soundTypeByParent: DEFAULT_BLOCK_SOUND_BY_PARENT,
+      // First matching keyword wins. Match is done against full source id.
+      soundTypeKeywordRules: buildKeywordSoundRules(
+        DEFAULT_BLOCK_SOUND_KEYWORD_GROUPS,
+      ),
+      // Suggested tint colors for grayscale tint-index models (leaves/grass/etc.).
+      // Used for optional .color(...) callbacks and baked texture tinting.
+      tintByParent: DEFAULT_BLOCK_TINT_BY_PARENT,
+      tintKeywordRules: buildKeywordTintRules(
+        DEFAULT_BLOCK_TINT_KEYWORD_GROUPS,
+      ),
+      // Exact source-id overrides.
+      overrides: {
+        // "minecraft:grass_block": { soundType: "grass", tintColor: 0x79c05a, tintIndices: [0] },
+      },
+    },
+    deadVariant: {
+      enabled: true,
+      displayPrefix: "Dead",
+      registryPrefix: "dead",
+      defaultConversionMode: "insert",
+      referenceTexturePaths: [
+        path.resolve(
+          "kubejs/assets/kubejs/textures/block/dead_grass_block/dead_grass_block_top_texture.png",
+        ),
+        path.resolve(
+          "kubejs/assets/kubejs/textures/block/dead_grass_block/dead_grass_block_side_texture.png",
+        ),
+      ],
+      fallbackTintColor: 0x7f6650,
+      desaturate: 1,
+      contrast: 1.05,
+      brightness: -8,
+    },
+    // Optional per-block source/conversion overrides for dead/corruption generation.
+    // NOTE: `source` must resolve from configured `inputs` (jar/asset folder), so custom
+    // KubeJS runtime-only blocks need matching assets (blockstate + model + textures) present.
+    deadVariantOverrides: {
+      // "minecraft:grass_block": { source: "kubejs:dead_grass_block", conversionMode: "insert" },
+      // "minecraft:oak_leaves": "kubejs:dead_oak_leaves",
+      // "minecraft:fern": "kubejs:dead_fern",
+    },
+    // Manual conversion overrides applied after auto-generation.
+    // Use `to: null` to remove a generated mapping.
+    conversionOverrides: [
+      // { from: "minecraft:grass_block", to: "kubejs:dead_grass_block", direction: "up" },
+      // { from: "kubejs:light_corrupted_block_minecraft_grass_block", to: "minecraft:grass_block", direction: "down" },
+    ],
   },
   corruptionLevels: [
     {
@@ -223,17 +563,8 @@ const CONFIG: GeneratorConfig = {
 
 const conversionsUp: Record<string, string> = {
   "minecraft:dirt_path": "minecraft:dirt",
-  "minecraft:grass_block": "kubejs:dead_grass_block",
-  "kubejs:dead_grass_block": "minecraft:dirt",
-  "minecraft:dirt": "kubejs:light_corrupted_block_minecraft_dirt",
-  "kubejs:light_corrupted_block_minecraft_dirt":
-    "kubejs:heavy_corrupted_block_minecraft_dirt",
 };
-const conversionsDown: Record<string, string> = {
-  "kubejs:heavy_corrupted_block_minecraft_dirt":
-    "kubejs:light_corrupted_block_minecraft_dirt",
-  "kubejs:light_corrupted_block_minecraft_dirt": "minecraft:dirt",
-};
+const conversionsDown: Record<string, string> = {};
 
 class AssetIndex {
   private readonly entries = new Map<string, AssetEntry>();
@@ -330,18 +661,43 @@ class AssetIndex {
   }
 }
 
-async function writeConversionMap(blocks: BlockCandidate[]): Promise<void> {
+async function writeConversionMap(): Promise<void> {
+  applyConversionOverrides(CONFIG.block.conversionOverrides);
+
   const result = [
     `export const GENERATED_CORRUPTION_BLOCK_CONVERSION_MAP_UP: Record<string, string> = ${JSON.stringify(conversionsUp, null, 2)};`,
     `export const GENERATED_CORRUPTION_BLOCK_CONVERSION_MAP_DOWN: Record<string, string> = ${JSON.stringify(conversionsDown, null, 2)};`,
   ];
-  await fsp.writeFile(
-    path.join(
-      path.resolve("kubejs_ts/shared/core_awakening/generated"),
-      "corruption_block_conversion.ts",
-    ),
-    result.join("\n"),
+  const conversionOutPath = path.resolve(
+    process.env.CORRUPTION_CONVERSION_OUT ??
+      "kubejs_ts/shared/core_awakening/generated/corruption_block_conversion.ts",
   );
+  await fsp.mkdir(path.dirname(conversionOutPath), { recursive: true });
+  await fsp.writeFile(conversionOutPath, result.join("\n"));
+}
+
+function applyConversionOverrides(overrides: BlockConversionOverride[]): void {
+  for (const override of overrides) {
+    const direction = override.direction ?? "both";
+    const shouldApplyUp = direction === "up" || direction === "both";
+    const shouldApplyDown = direction === "down" || direction === "both";
+
+    if (shouldApplyUp) {
+      if (override.to === null) {
+        delete conversionsUp[override.from];
+      } else {
+        conversionsUp[override.from] = override.to;
+      }
+    }
+
+    if (shouldApplyDown) {
+      if (override.to === null) {
+        delete conversionsDown[override.from];
+      } else {
+        conversionsDown[override.from] = override.to;
+      }
+    }
+  }
 }
 
 async function main(): Promise<void> {
@@ -391,12 +747,12 @@ async function main(): Promise<void> {
     await materializeBlocks(index, blocks);
   }
 
-  await writeConversionMap(generatedBlocks);
+  await writeConversionMap();
   await writeGeneratedKubeJSTs(generatedItems, generatedBlocks);
   await writeReport(report, generatedItems, generatedBlocks);
 
   console.log(
-    `Generated ${generatedItems.length} corrupted items and ${generatedBlocks.length} corrupted blocks.`,
+    `Generated ${generatedItems.length} corrupted items and ${generatedBlocks.length} generated block variants.`,
   );
 }
 
@@ -501,89 +857,46 @@ async function collectBlockCandidates(
     if (!shouldIncludeNamespace(parsed.namespace)) continue;
 
     const originalId = `${parsed.namespace}:${parsed.path}`;
-    const blockstate = await index.readJson<any>(assetPath);
-    if (!blockstate) {
-      report.skippedBlocks.push({
-        id: originalId,
-        reason: "Unreadable blockstate JSON",
-      });
-      continue;
-    }
+    const deadVariantOverride = getDeadVariantOverride(originalId);
+    const sourceBlockId = deadVariantOverride?.source ?? originalId;
+    const deadVariantConversionMode =
+      deadVariantOverride?.conversionMode ??
+      CONFIG.block.deadVariant.defaultConversionMode;
+    const shouldCreateDeadVariant = CONFIG.block.deadVariant.enabled;
 
-    const chosenModelRef = pickModelFromBlockstate(blockstate);
-    if (!chosenModelRef) {
-      report.skippedBlocks.push({
-        id: originalId,
-        reason: "Unsupported blockstate structure",
-      });
-      continue;
-    }
-
-    const modelRl = parseResourceLocation(chosenModelRef, parsed.namespace);
-    const resolved = await resolveModel(index, modelRl, modelCache);
-    if (!resolved) {
-      report.skippedBlocks.push({
-        id: originalId,
-        reason: "Could not resolve block model parent",
-      });
-      continue;
-    }
-
-    const selectedParent = pickSupportedParent(
+    const resolvedSourceResult = await resolveBlockGenerationSource(
+      index,
+      modelCache,
+      sourceBlockId,
       originalId,
-      resolved.parentChain,
-      CONFIG.block.supportedParents,
-      CONFIG.block.supportedIds,
     );
-    if (!selectedParent) {
-      const directParent = resolved.parentChain[0];
+    if (!resolvedSourceResult.source) {
       report.skippedBlocks.push({
         id: originalId,
-        reason: directParent
-          ? `Unsupported block parent: ${directParent}`
-          : "Could not resolve block model parent",
+        reason:
+          resolvedSourceResult.reason ??
+          `Could not resolve source block '${sourceBlockId}'`,
       });
       continue;
     }
+    const resolvedSource = resolvedSourceResult.source;
 
-    const requiredKeys = getRequiredTextureKeysForBlockParent(
-      selectedParent,
-      resolved.textures,
-    );
-    if (requiredKeys.length === 0) {
-      report.skippedBlocks.push({
-        id: originalId,
-        reason: `Unsupported block parent: ${selectedParent}`,
-      });
-      continue;
-    }
+    const conversion: string[] = [originalId];
+    if (shouldCreateDeadVariant) {
+      const deadVariantCandidate = createDeadVariantCandidate(
+        parsed,
+        originalId,
+        resolvedSource,
+        deadVariantConversionMode,
+      );
+      const deadFullId = `kubejs:${deadVariantCandidate.registryId}`;
+      out.push(deadVariantCandidate);
 
-    const textures: Record<string, string> = {};
-
-    let missing = false;
-    for (const key of requiredKeys) {
-      const textureRef = resolveTextureReference(resolved.textures, key);
-      if (!textureRef) {
-        missing = true;
-        break;
+      if (deadVariantConversionMode === "insert") {
+        conversion.push(deadFullId);
       }
-      textures[key] = textureRef;
     }
 
-    if (missing) {
-      report.skippedBlocks.push({
-        id: originalId,
-        reason: "Missing one or more required block textures",
-      });
-      continue;
-    }
-
-    const outputParentModel =
-      selectedParent === "minecraft:block/block"
-        ? `${modelRl.namespace}:${modelRl.path}`
-        : selectedParent;
-
-    const conversion = [originalId];
     for (const corruptionLevel of corruptionLevels) {
       const registryId = buildCorruptionRegistryId(
         "block",
@@ -596,16 +909,26 @@ async function collectBlockCandidates(
 
       out.push({
         kind: "block",
+        stage: "corrupted",
         originalId,
         registryId,
         displayName: `${corruptionLevel.displayPrefix} ${toTitleCase(parsed.path)}`,
-        sourceNamespace: parsed.namespace,
-        sourcePath: parsed.path,
-        parentModel: outputParentModel,
-        textures,
+        sourceNamespace: resolvedSource.sourceNamespace,
+        sourcePath: resolvedSource.sourcePath,
+        sourceBlockId: resolvedSource.sourceBlockId,
+        deadVariantConversionMode,
+        applyDeadVariantPrepass: shouldCreateDeadVariant,
+        selectedParent: resolvedSource.selectedParent,
+        parentModel: resolvedSource.parentModel,
+        textures: resolvedSource.textures,
+        tintedTextureKeys: resolvedSource.tintedTextureKeys,
         modelResourceLocation: `${CONFIG.generatedNamespace}:block/generated/${registryId}`,
         corruptionLevel,
       });
+    }
+
+    if (conversion.length < 2) {
+      continue;
     }
 
     for (let i = 1; i < conversion.length; i++) {
@@ -615,6 +938,140 @@ async function collectBlockCandidates(
   }
 
   return dedupeBy(out, (c) => c.registryId);
+}
+
+function createDeadVariantCandidate(
+  parsed: { namespace: string; path: string },
+  originalId: string,
+  resolvedSource: ResolvedBlockGenerationSource,
+  deadVariantConversionMode: DeadVariantConversionMode,
+): BlockCandidate {
+  const deadRegistryId = buildDeadVariantRegistryId(
+    "block",
+    CONFIG.block.deadVariant.registryPrefix,
+    parsed.namespace,
+    parsed.path,
+  );
+
+  return {
+    kind: "block",
+    stage: "dead",
+    originalId,
+    registryId: deadRegistryId,
+    displayName: `${CONFIG.block.deadVariant.displayPrefix} ${toTitleCase(parsed.path)}`,
+    sourceNamespace: resolvedSource.sourceNamespace,
+    sourcePath: resolvedSource.sourcePath,
+    sourceBlockId: resolvedSource.sourceBlockId,
+    deadVariantConversionMode,
+    applyDeadVariantPrepass: true,
+    selectedParent: resolvedSource.selectedParent,
+    parentModel: resolvedSource.parentModel,
+    textures: resolvedSource.textures,
+    tintedTextureKeys: resolvedSource.tintedTextureKeys,
+    modelResourceLocation: `${CONFIG.generatedNamespace}:block/generated/${deadRegistryId}`,
+  };
+}
+
+function getDeadVariantOverride(
+  blockId: string,
+): BlockDeadVariantOverride | undefined {
+  const entry = CONFIG.block.deadVariantOverrides[blockId];
+  if (!entry) {
+    return undefined;
+  }
+  if (typeof entry === "string") {
+    return { source: entry };
+  }
+  return entry;
+}
+
+async function resolveBlockGenerationSource(
+  index: AssetIndex,
+  modelCache: Map<string, ResolvedModel | null>,
+  sourceBlockId: string,
+  originalIdForSupport: string,
+): Promise<ResolvedBlockGenerationSourceResult> {
+  const sourceRl = parseResourceLocation(sourceBlockId, "minecraft");
+  const sourceBlockstatePath = `assets/${sourceRl.namespace}/blockstates/${sourceRl.path}.json`;
+  const sourceBlockstate = await index.readJson<any>(sourceBlockstatePath);
+  if (!sourceBlockstate) {
+    return {
+      reason: `Unreadable blockstate JSON for source '${sourceBlockId}'`,
+    };
+  }
+
+  const chosenModelRef = pickModelFromBlockstate(sourceBlockstate);
+  if (!chosenModelRef) {
+    return {
+      reason: `Unsupported blockstate structure for source '${sourceBlockId}'`,
+    };
+  }
+
+  const modelRl = parseResourceLocation(chosenModelRef, sourceRl.namespace);
+  const resolved = await resolveModel(index, modelRl, modelCache);
+  if (!resolved) {
+    return {
+      reason: `Could not resolve block model parent for source '${sourceBlockId}'`,
+    };
+  }
+
+  const selectedParent = pickSupportedParent(
+    originalIdForSupport,
+    resolved.parentChain,
+    CONFIG.block.supportedParents,
+    CONFIG.block.supportedIds,
+  );
+  if (!selectedParent) {
+    const directParent = resolved.parentChain[0];
+    return {
+      reason: directParent
+        ? `Unsupported block parent: ${directParent}`
+        : `Could not resolve block model parent for source '${sourceBlockId}'`,
+    };
+  }
+
+  const requiredKeys = getRequiredTextureKeysForBlockParent(
+    selectedParent,
+    resolved.textures,
+  );
+  if (requiredKeys.length === 0) {
+    return {
+      reason: `Unsupported block parent: ${selectedParent}`,
+    };
+  }
+
+  const textures: Record<string, string> = {};
+  for (const key of requiredKeys) {
+    const textureRef = resolveTextureReference(resolved.textures, key);
+    if (!textureRef) {
+      return {
+        reason: "Missing one or more required block textures",
+      };
+    }
+    textures[key] = textureRef;
+  }
+
+  const tintedTextureKeys = getTintedTextureKeysForBlock(
+    resolved,
+    sourceRl.namespace,
+    Object.keys(textures),
+  );
+
+  const parentModel = shouldUseSourceModelAsParent(selectedParent)
+    ? `${modelRl.namespace}:${modelRl.path}`
+    : selectedParent;
+
+  return {
+    source: {
+      sourceBlockId,
+      sourceNamespace: sourceRl.namespace,
+      sourcePath: sourceRl.path,
+      selectedParent,
+      parentModel,
+      textures,
+      tintedTextureKeys,
+    },
+  };
 }
 
 async function materializeItems(
@@ -651,8 +1108,16 @@ async function materializeBlocks(
   index: AssetIndex,
   candidates: BlockCandidate[],
 ): Promise<void> {
+  const deadVariantProfile = await loadDeadVariantColorProfile();
   for (const candidate of candidates) {
     const generatedTextures: Record<string, string> = {};
+    const tintConfig =
+      candidate.stage === "corrupted" &&
+      !candidate.applyDeadVariantPrepass &&
+      CONFIG.block.registration.bakeTintedTextures
+      ? getSuggestedBlockTint(candidate)
+      : null;
+    const tintedTextureKeys = new Set(candidate.tintedTextureKeys);
 
     for (const [textureKey, sourceTextureRef] of Object.entries(
       candidate.textures,
@@ -669,7 +1134,15 @@ async function materializeBlocks(
       const generatedTextureRl = `${CONFIG.generatedNamespace}:block/generated/${candidate.registryId}/${textureKey}`;
       generatedTextures[textureKey] = generatedTextureRl;
       const outPngPath = textureRlToOutputPath(generatedTextureRl);
-      await writeTransformedTexture(png, outPngPath, candidate.corruptionLevel);
+      const bakedTintColor =
+        tintConfig && tintedTextureKeys.has(textureKey) ? tintConfig.color : null;
+      await writeTransformedTexture(
+        png,
+        outPngPath,
+        candidate.corruptionLevel,
+        bakedTintColor,
+        candidate.applyDeadVariantPrepass ? deadVariantProfile : null,
+      );
 
       if (CONFIG.copyMcmeta) {
         await copyTextureMcmetaIfPresent(
@@ -694,24 +1167,19 @@ async function writeGeneratedKubeJSTs(
   items: ItemCandidate[],
   blocks: BlockCandidate[],
 ): Promise<void> {
+  const prototypeSnapshotById = await loadBlockPrototypeSnapshotMap();
   const itemsTs = buildItemRegistrationTs(items);
-  const blocksTs = buildBlockRegistrationTs(blocks);
-  const manifestTs = buildManifestTs(items, blocks);
+  const blocksTs = buildBlockRegistrationTs(blocks, prototypeSnapshotById);
 
   await fsp.mkdir(CONFIG.tsOutDir, { recursive: true });
   await fsp.writeFile(
-    path.join(CONFIG.tsOutDir, "register_corrupted_items.ts"),
+    path.join(CONFIG.tsOutDir, "02_generated_corrupted_items.ts"),
     itemsTs,
     "utf8",
   );
   await fsp.writeFile(
-    path.join(CONFIG.tsOutDir, "register_corrupted_blocks.ts"),
+    path.join(CONFIG.tsOutDir, "03_generated_corrupted_blocks.ts"),
     blocksTs,
-    "utf8",
-  );
-  await fsp.writeFile(
-    path.join(CONFIG.tsOutDir, "corruption_generated_manifest.ts"),
-    manifestTs,
     "utf8",
   );
 }
@@ -737,7 +1205,9 @@ ${layerLines}
     })`;
     })
     .join("\n\n");
-
+  if (rows.length === 0) {
+    return "";
+  }
   return `// Generated by generate-corruption-assets.ts
 // DO NOT EDIT MANUALLY
 
@@ -747,18 +1217,47 @@ ${rows}
 `;
 }
 
-function buildBlockRegistrationTs(blocks: BlockCandidate[]): string {
+function buildBlockRegistrationTs(
+  blocks: BlockCandidate[],
+  prototypeSnapshotById: Map<string, BlockPrototypeSnapshotEntry>,
+): string {
   const rows = blocks
     .map((block) => {
       const eventId = buildEventCreateId(block.registryId);
+      const registrationOverride = getBlockRegistrationOverride(block);
+      const hasExplicitSoundOverride = Boolean(registrationOverride?.soundType);
+      const soundType = getSuggestedBlockSoundType(block);
       const renderType = getSuggestedBlockRenderType(block);
       const needsPlantSettings = shouldUsePlantBlockSettings(block);
+      const tint = getSuggestedBlockTint(block);
+      const sourceBlockId = block.sourceBlockId || block.originalId;
+      const sourcePrototype =
+        prototypeSnapshotById.get(sourceBlockId) ??
+        prototypeSnapshotById.get(block.originalId);
+      const shouldCopyProperties = shouldCopyPropertiesFromSourceBlock(
+        block,
+        sourcePrototype,
+      );
       const lines = [
         `  event.create(${JSON.stringify(eventId)})`,
         `    .displayName(${JSON.stringify(block.displayName)})`,
         `    .parentModel(${JSON.stringify(block.modelResourceLocation)})`,
       ];
 
+      if (shouldCopyProperties) {
+        lines.push(`    .copyPropertiesFrom(${JSON.stringify(sourceBlockId)})`);
+      }
+
+      if (sourcePrototype && CONFIG.block.registration.applyPrototypeSnapshot) {
+        appendPrototypeSnapshotBuilderLines(lines, sourcePrototype);
+      }
+
+      if (
+        soundType &&
+        (!shouldCopyProperties || hasExplicitSoundOverride)
+      ) {
+        lines.push(`    .soundType(${JSON.stringify(soundType)})`);
+      }
       if (renderType) {
         lines.push(`    .renderType(${JSON.stringify(renderType)})`);
       }
@@ -766,6 +1265,11 @@ function buildBlockRegistrationTs(blocks: BlockCandidate[]): string {
         lines.push("    .fullBlock(false)");
         lines.push("    .notSolid()");
         lines.push("    .noCollision()");
+      }
+      if (CONFIG.block.registration.emitTintCallbacks && tint) {
+        for (const tintIndex of tint.tintIndices) {
+          lines.push(`    .color(${tintIndex}, ${formatHexColor(tint.color)})`);
+        }
       }
 
       lines.push(
@@ -776,6 +1280,10 @@ function buildBlockRegistrationTs(blocks: BlockCandidate[]): string {
     })
     .join("\n\n");
 
+  if (rows.length === 0) {
+    return "";
+  }
+
   return `// Generated by generate-corruption-assets.ts
 // DO NOT EDIT MANUALLY
 
@@ -785,34 +1293,160 @@ ${rows}
 `;
 }
 
-function buildManifestTs(
-  items: ItemCandidate[],
-  blocks: BlockCandidate[],
-): string {
-  const itemRows = items
-    .map(
-      (item) =>
-        `  ${JSON.stringify(item.registryId)}: ${JSON.stringify(item.originalId)},`,
-    )
-    .join("\n");
-  const blockRows = blocks
-    .map(
-      (block) =>
-        `  ${JSON.stringify(block.registryId)}: ${JSON.stringify(block.originalId)},`,
-    )
-    .join("\n");
+function shouldCopyPropertiesFromSourceBlock(
+  block: BlockCandidate,
+  sourcePrototype?: BlockPrototypeSnapshotEntry,
+): boolean {
+  const override = getBlockRegistrationOverride(block);
+  if (typeof override?.copyPropertiesFrom === "boolean") {
+    return override.copyPropertiesFrom;
+  }
 
-  return `// Generated by generate-corruption-assets.ts
-// DO NOT EDIT MANUALLY
+  if (!CONFIG.block.registration.copyPropertiesFromSource) {
+    return false;
+  }
 
-export const CORRUPTED_ITEM_SOURCE_MAP = {
-${itemRows}
-} as const
+  if (!CONFIG.block.registration.copyPropertiesFromSafeOnly) {
+    return true;
+  }
 
-export const CORRUPTED_BLOCK_SOURCE_MAP = {
-${blockRows}
-} as const
-`;
+  if (!sourcePrototype) {
+    return false;
+  }
+
+  // Stateful source blocks can crash KubeJS custom block registration when
+  // copied directly because copied behavior may query missing properties.
+  return (sourcePrototype.properties?.length ?? 0) === 0;
+}
+
+function appendPrototypeSnapshotBuilderLines(
+  lines: string[],
+  prototype: BlockPrototypeSnapshotEntry,
+): void {
+  const requiresTool = prototype.flags?.requiresTool ?? false;
+  if (requiresTool) {
+    lines.push("    .requiresTool()");
+  }
+
+  const destroySpeed = toFiniteNumber(prototype.stats?.destroySpeed);
+  if (destroySpeed != null) {
+    if (destroySpeed < 0) {
+      lines.push("    .unbreakable()");
+    } else {
+      lines.push(`    .hardness(${formatNumberLiteral(destroySpeed)})`);
+    }
+  }
+
+  const explosionResistance = toFiniteNumber(prototype.stats?.explosionResistance);
+  if (explosionResistance != null && explosionResistance >= 0) {
+    lines.push(`    .resistance(${formatNumberLiteral(explosionResistance)})`);
+  }
+
+  const friction = toFiniteNumber(prototype.stats?.friction);
+  if (friction != null && friction >= 0) {
+    lines.push(`    .slipperiness(${formatNumberLiteral(friction)})`);
+  }
+
+  const speedFactor = toFiniteNumber(prototype.stats?.speedFactor);
+  if (speedFactor != null && speedFactor > 0) {
+    lines.push(`    .speedFactor(${formatNumberLiteral(speedFactor)})`);
+  }
+
+  const jumpFactor = toFiniteNumber(prototype.stats?.jumpFactor);
+  if (jumpFactor != null && jumpFactor > 0) {
+    lines.push(`    .jumpFactor(${formatNumberLiteral(jumpFactor)})`);
+  }
+
+  const lightEmission = toFiniteNumber(prototype.stats?.lightEmission);
+  if (lightEmission != null && lightEmission > 0) {
+    lines.push(`    .lightLevel(${formatNumberLiteral(lightEmission)})`);
+  }
+
+  for (const tag of getPrototypeSnapshotRelevantBlockTags(prototype.tags)) {
+    lines.push(`    .tagBlock(${JSON.stringify(tag)})`);
+  }
+}
+
+async function loadBlockPrototypeSnapshotMap(): Promise<
+  Map<string, BlockPrototypeSnapshotEntry>
+> {
+  const out = new Map<string, BlockPrototypeSnapshotEntry>();
+  if (!CONFIG.block.registration.applyPrototypeSnapshot) {
+    return out;
+  }
+
+  const configuredPath = CONFIG.block.registration.prototypeSnapshotPath;
+  if (!configuredPath) {
+    return out;
+  }
+
+  const snapshotPath = path.resolve(configuredPath);
+  if (!fs.existsSync(snapshotPath)) {
+    console.warn(
+      `[corruption-generator] Prototype snapshot not found: ${snapshotPath}`,
+    );
+    return out;
+  }
+
+  try {
+    const raw = await fsp.readFile(snapshotPath, "utf8");
+    const parsed = JSON.parse(raw) as BlockPrototypeSnapshotFile;
+    if (!parsed || !Array.isArray(parsed.blocks)) {
+      console.warn(
+        `[corruption-generator] Invalid prototype snapshot format: ${snapshotPath}`,
+      );
+      return out;
+    }
+
+    for (const block of parsed.blocks) {
+      if (!block || typeof block.id !== "string" || block.id.length === 0) {
+        continue;
+      }
+      out.set(block.id, block);
+    }
+
+    console.log(
+      `[corruption-generator] Loaded ${out.size} block prototypes from snapshot.`,
+    );
+  } catch (error) {
+    console.warn(
+      `[corruption-generator] Failed to load prototype snapshot '${snapshotPath}': ${String(error)}`,
+    );
+  }
+
+  return out;
+}
+
+function getPrototypeSnapshotRelevantBlockTags(tags?: string[]): string[] {
+  if (!Array.isArray(tags) || tags.length === 0) {
+    return [];
+  }
+
+  const allowedTags = new Set([
+    "minecraft:mineable/axe",
+    "minecraft:mineable/pickaxe",
+    "minecraft:mineable/shovel",
+    "minecraft:mineable/hoe",
+    "minecraft:needs_stone_tool",
+    "minecraft:needs_iron_tool",
+    "minecraft:needs_diamond_tool",
+  ]);
+
+  return tags.filter((tag) => allowedTags.has(tag));
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value !== "number") {
+    return null;
+  }
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatNumberLiteral(value: number): string {
+  if (Number.isInteger(value)) {
+    return `${value}`;
+  }
+  return `${Number(value.toFixed(6))}`;
 }
 
 async function writeReport(
@@ -865,10 +1499,131 @@ async function loadCorruptionLevels(): Promise<LoadedCorruptionLevel[]> {
   return out;
 }
 
+async function loadDeadVariantColorProfile(): Promise<DeadVariantColorProfile | null> {
+  if (!CONFIG.block.deadVariant.enabled) {
+    return null;
+  }
+
+  const samples: Array<{ r: number; g: number; b: number; count: number }> = [];
+  for (const texturePath of CONFIG.block.deadVariant.referenceTexturePaths) {
+    const absolutePath = path.resolve(texturePath);
+    if (!fs.existsSync(absolutePath)) {
+      continue;
+    }
+    try {
+      const buffer = await fsp.readFile(absolutePath);
+      const png = PNG.sync.read(buffer);
+      const sample = sampleAveragePngColor(png);
+      if (sample.count > 0) {
+        samples.push(sample);
+      }
+    } catch (error) {
+      console.warn(
+        `[corruption-generator] Failed to read dead-variant reference texture '${absolutePath}': ${String(error)}`,
+      );
+    }
+  }
+
+  let tint = getRgbColor(CONFIG.block.deadVariant.fallbackTintColor);
+  if (!tint) {
+    tint = { r: 127, g: 102, b: 80 };
+  }
+
+  if (samples.length > 0) {
+    let totalCount = 0;
+    let weightedR = 0;
+    let weightedG = 0;
+    let weightedB = 0;
+    for (const sample of samples) {
+      totalCount += sample.count;
+      weightedR += sample.r * sample.count;
+      weightedG += sample.g * sample.count;
+      weightedB += sample.b * sample.count;
+    }
+    if (totalCount > 0) {
+      tint = {
+        r: clampByte(weightedR / totalCount),
+        g: clampByte(weightedG / totalCount),
+        b: clampByte(weightedB / totalCount),
+      };
+    }
+  }
+
+  return {
+    tint,
+    desaturate: clamp01(CONFIG.block.deadVariant.desaturate),
+    contrast: CONFIG.block.deadVariant.contrast,
+    brightness: CONFIG.block.deadVariant.brightness,
+  };
+}
+
+function sampleAveragePngColor(
+  png: PNG,
+): { r: number; g: number; b: number; count: number } {
+  let totalR = 0;
+  let totalG = 0;
+  let totalB = 0;
+  let count = 0;
+  for (let i = 0; i < png.data.length; i += 4) {
+    const alpha = png.data[i + 3]!;
+    if (alpha === 0) continue;
+    totalR += png.data[i + 0]!;
+    totalG += png.data[i + 1]!;
+    totalB += png.data[i + 2]!;
+    count++;
+  }
+  if (count === 0) {
+    return { r: 0, g: 0, b: 0, count: 0 };
+  }
+  return {
+    r: totalR / count,
+    g: totalG / count,
+    b: totalB / count,
+    count,
+  };
+}
+
+function applyDeadVariantColor(
+  r: number,
+  g: number,
+  b: number,
+  profile: DeadVariantColorProfile,
+): { r: number; g: number; b: number } {
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const gray = lum;
+  const dr = mix(r, gray, profile.desaturate);
+  const dg = mix(g, gray, profile.desaturate);
+  const db = mix(b, gray, profile.desaturate);
+
+  let rr = (dr * profile.tint.r) / 255;
+  let gg = (dg * profile.tint.g) / 255;
+  let bb = (db * profile.tint.b) / 255;
+
+  if (profile.contrast !== 1) {
+    rr = (rr - 128) * profile.contrast + 128;
+    gg = (gg - 128) * profile.contrast + 128;
+    bb = (bb - 128) * profile.contrast + 128;
+  }
+
+  if (profile.brightness !== 0) {
+    rr += profile.brightness;
+    gg += profile.brightness;
+    bb += profile.brightness;
+  }
+
+  return {
+    r: clampByte(rr),
+    g: clampByte(gg),
+    b: clampByte(bb),
+  };
+}
+
 async function writeTransformedTexture(
   sourcePng: Buffer,
   outPath: string,
   corruptionLevel?: LoadedCorruptionLevel,
+  bakedTintColor?: number | null,
+  deadVariantProfile?: DeadVariantColorProfile | null,
 ): Promise<void> {
   await fsp.mkdir(path.dirname(outPath), { recursive: true });
   const inPng = PNG.sync.read(sourcePng);
@@ -879,6 +1634,7 @@ async function writeTransformedTexture(
       0,
   );
   const overlay = corruptionLevel?.overlayImage;
+  const bakedTint = getRgbColor(bakedTintColor ?? null);
   const useOverlay =
     overlay &&
     overlay.png.width > 0 &&
@@ -901,12 +1657,34 @@ async function writeTransformedTexture(
         continue;
       }
 
-      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      let baseR = r;
+      let baseG = g;
+      let baseB = b;
+
+      if (deadVariantProfile) {
+        const dead = applyDeadVariantColor(
+          baseR,
+          baseG,
+          baseB,
+          deadVariantProfile,
+        );
+        baseR = dead.r;
+        baseG = dead.g;
+        baseB = dead.b;
+      }
+
+      if (bakedTint) {
+        baseR = (baseR * bakedTint.r) / 255;
+        baseG = (baseG * bakedTint.g) / 255;
+        baseB = (baseB * bakedTint.b) / 255;
+      }
+
+      const lum = 0.2126 * baseR + 0.7152 * baseG + 0.0722 * baseB;
       const gray = lum;
 
-      let rr = mix(r, gray, CONFIG.transform.desaturate);
-      let gg = mix(g, gray, CONFIG.transform.desaturate);
-      let bb = mix(b, gray, CONFIG.transform.desaturate);
+      let rr = mix(baseR, gray, CONFIG.transform.desaturate);
+      let gg = mix(baseG, gray, CONFIG.transform.desaturate);
+      let bb = mix(baseB, gray, CONFIG.transform.desaturate);
 
       rr = mix(rr, CONFIG.transform.targetR, tintStrength);
       gg = mix(gg, CONFIG.transform.targetG, tintStrength);
@@ -970,11 +1748,14 @@ async function resolveModel(
   const localTextures = isObject(model.textures)
     ? asStringRecord(model.textures)
     : {};
+  const hasLocalElements = Array.isArray((model as any).elements);
+  const localTintedTextureRefs = collectTintedTextureRefs(model);
 
   if (!parentRef) {
     const resolved: ResolvedModel = {
       parentChain: [],
       textures: localTextures,
+      tintedTextureRefs: localTintedTextureRefs,
     };
     cache.set(cacheKey, resolved);
     return resolved;
@@ -993,6 +1774,15 @@ async function resolveModel(
       ...(parentResolved?.textures ?? {}),
       ...localTextures,
     },
+    tintedTextureRefs: dedupeBy(
+      hasLocalElements
+        ? localTintedTextureRefs
+        : [
+            ...(parentResolved?.tintedTextureRefs ?? []),
+            ...localTintedTextureRefs,
+          ],
+      (value) => value,
+    ),
   };
 
   cache.set(cacheKey, resolved);
@@ -1009,6 +1799,85 @@ function resolveTextureReference(
   if (!raw) return null;
   if (!raw.startsWith("#")) return raw;
   return resolveTextureReference(textures, raw.slice(1), depth + 1);
+}
+
+function collectTintedTextureRefs(model: unknown): string[] {
+  if (!isObject(model) || !Array.isArray((model as any).elements)) {
+    return [];
+  }
+
+  const out: string[] = [];
+  for (const element of (model as any).elements as unknown[]) {
+    if (!isObject(element) || !isObject((element as any).faces)) continue;
+    const faces = (element as any).faces as Record<string, unknown>;
+    for (const face of Object.values(faces)) {
+      if (!isObject(face)) continue;
+      const tintindex = (face as any).tintindex;
+      if (typeof tintindex !== "number" || tintindex < 0) continue;
+      const texture = (face as any).texture;
+      if (typeof texture !== "string") continue;
+      out.push(texture);
+    }
+  }
+
+  return dedupeBy(out, (value) => value);
+}
+
+function getTintedTextureKeysForBlock(
+  resolved: ResolvedModel,
+  sourceNamespace: string,
+  candidateTextureKeys: string[],
+): string[] {
+  if (resolved.tintedTextureRefs.length === 0) {
+    return [];
+  }
+
+  const tintedTextureRefs = new Set<string>();
+  for (const textureRef of resolved.tintedTextureRefs) {
+    const resolvedRef = resolveTextureFaceReference(
+      resolved.textures,
+      textureRef,
+    );
+    if (!resolvedRef) continue;
+    tintedTextureRefs.add(
+      normalizeTextureResourceLocation(resolvedRef, sourceNamespace),
+    );
+  }
+  if (tintedTextureRefs.size === 0) {
+    return [];
+  }
+
+  const out: string[] = [];
+  for (const key of candidateTextureKeys) {
+    const textureRef = resolveTextureReference(resolved.textures, key);
+    if (!textureRef) continue;
+    const normalizedTextureRef = normalizeTextureResourceLocation(
+      textureRef,
+      sourceNamespace,
+    );
+    if (tintedTextureRefs.has(normalizedTextureRef)) {
+      out.push(key);
+    }
+  }
+
+  return dedupeBy(out, (value) => value);
+}
+
+function resolveTextureFaceReference(
+  textures: Record<string, string>,
+  textureRef: string,
+): string | null {
+  return textureRef.startsWith("#")
+    ? resolveTextureReference(textures, textureRef.slice(1))
+    : textureRef;
+}
+
+function normalizeTextureResourceLocation(
+  textureRef: string,
+  sourceNamespace: string,
+): string {
+  const rl = parseResourceLocation(textureRef, sourceNamespace);
+  return `${rl.namespace}:${rl.path}`;
 }
 
 function pickSupportedParent<T extends string>(
@@ -1034,27 +1903,32 @@ function getRequiredTextureKeysForBlockParent(
   parent: SupportedBlockParent,
   textures: Record<string, string>,
 ): string[] {
-  switch (parent) {
-    case "minecraft:block/cube_all":
-      return ["all"];
-    case "minecraft:block/cube_bottom_top":
-      return ["side", "top", "bottom"];
-    case "minecraft:block/cube_column":
-    case "minecraft:block/cube_column_horizontal":
-      return ["side", "end"];
-    case "minecraft:block/orientable":
-      return ["front", "side", "top"];
-    case "minecraft:block/tinted_cross":
-    case "minecraft:block/cross":
-      return ["cross"];
-    case "minecraft:block/template_seagrass":
-      return ["texture"];
-    default:
-      return Object.keys(textures).filter(
-        (key) =>
-          key !== "particle" && resolveTextureReference(textures, key) !== null,
-      );
+  const definition = getBlockParentDefinition(parent);
+  if (!definition) {
+    return getResolvableTextureKeys(textures);
   }
+  const { requiredTextureKeys } = definition;
+  if (typeof requiredTextureKeys === "function") {
+    return requiredTextureKeys(textures);
+  }
+  return [...requiredTextureKeys];
+}
+
+function getBlockParentDefinition(
+  parent: SupportedBlockParent,
+): BlockParentDefinition | undefined {
+  return BLOCK_PARENT_DEFINITIONS[parent];
+}
+
+function getResolvableTextureKeys(textures: Record<string, string>): string[] {
+  return Object.keys(textures).filter(
+    (key) =>
+      key !== "particle" && resolveTextureReference(textures, key) !== null,
+  );
+}
+
+function shouldUseSourceModelAsParent(parent: SupportedBlockParent): boolean {
+  return getBlockParentDefinition(parent)?.useSourceModelAsParent ?? false;
 }
 
 function pickModelFromBlockstate(blockstate: any): string | null {
@@ -1144,30 +2018,110 @@ function parseResourceLocation(
 
 function getSuggestedBlockRenderType(
   block: BlockCandidate,
-): "cutout" | "cutout_mipped" | null {
+): BlockRenderType | null {
+  const override = getBlockRegistrationOverride(block);
+  if (
+    override &&
+    Object.prototype.hasOwnProperty.call(override, "renderType")
+  ) {
+    return override.renderType ?? null;
+  }
+
   if (Object.prototype.hasOwnProperty.call(block.textures, "overlay")) {
     return "cutout_mipped";
   }
 
-  switch (block.parentModel) {
-    case "minecraft:block/tinted_cross":
-    case "minecraft:block/cross":
-    case "minecraft:block/template_seagrass":
-      return "cutout";
-    default:
-      return null;
-  }
+  return getBlockParentDefinition(block.selectedParent)?.renderType ?? null;
 }
 
 function shouldUsePlantBlockSettings(block: BlockCandidate): boolean {
-  switch (block.parentModel) {
-    case "minecraft:block/tinted_cross":
-    case "minecraft:block/cross":
-    case "minecraft:block/template_seagrass":
-      return true;
-    default:
-      return false;
+  const override = getBlockRegistrationOverride(block);
+  if (
+    override &&
+    Object.prototype.hasOwnProperty.call(override, "usePlantSettings")
+  ) {
+    return override.usePlantSettings ?? false;
   }
+
+  return getBlockParentDefinition(block.selectedParent)?.usePlantSettings ?? false;
+}
+
+function getSuggestedBlockSoundType(block: BlockCandidate): string {
+  const override = getBlockRegistrationOverride(block);
+  if (override?.soundType) {
+    return override.soundType;
+  }
+
+  const byParent = CONFIG.block.registration.soundTypeByParent[block.selectedParent];
+  if (byParent) {
+    return byParent;
+  }
+
+  const loweredId = block.originalId.toLowerCase();
+  for (const rule of CONFIG.block.registration.soundTypeKeywordRules) {
+    if (loweredId.includes(rule.keyword.toLowerCase())) {
+      return rule.soundType;
+    }
+  }
+
+  return CONFIG.block.registration.defaultSoundType;
+}
+
+function getSuggestedBlockTint(
+  block: BlockCandidate,
+): BlockRegistrationTintConfig | null {
+  const override = getBlockRegistrationOverride(block);
+  if (override?.tintColor != null) {
+    return {
+      color: override.tintColor,
+      tintIndices: override.tintIndices ?? [0],
+    };
+  }
+
+  const tintByParent = CONFIG.block.registration.tintByParent[block.selectedParent];
+  if (tintByParent) {
+    return tintByParent;
+  }
+
+  const loweredId = block.originalId.toLowerCase();
+  for (const rule of CONFIG.block.registration.tintKeywordRules) {
+    if (loweredId.includes(rule.keyword.toLowerCase())) {
+      return {
+        color: rule.color,
+        tintIndices: rule.tintIndices,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getBlockRegistrationOverride(
+  block: BlockCandidate,
+): BlockRegistrationOverride | undefined {
+  return CONFIG.block.registration.overrides[block.originalId];
+}
+
+function formatHexColor(value: number): string {
+  const normalized = value >>> 0;
+  // KubeJS block tint colors are safest as ARGB. If user gives RGB, force opaque alpha.
+  const argb =
+    normalized <= 0xffffff ? ((0xff000000 | normalized) >>> 0) : normalized;
+  return `0x${argb.toString(16).padStart(8, "0").toUpperCase()}`;
+}
+
+function getRgbColor(
+  value: number | null,
+): { r: number; g: number; b: number } | null {
+  if (value == null) {
+    return null;
+  }
+  const normalized = value >>> 0;
+  return {
+    r: (normalized >> 16) & 0xff,
+    g: (normalized >> 8) & 0xff,
+    b: normalized & 0xff,
+  };
 }
 
 function normalizeModelReference(
@@ -1214,6 +2168,16 @@ function buildCorruptionRegistryId(
   resourcePath: string,
 ): string {
   const raw = `${corruptionPrefix}_${kind}__${namespace}__${resourcePath}`;
+  return sanitizeForRegistryPath(raw);
+}
+
+function buildDeadVariantRegistryId(
+  kind: CandidateKind,
+  deadPrefix: string,
+  namespace: string,
+  resourcePath: string,
+): string {
+  const raw = `${deadPrefix}_${kind}__${namespace}__${resourcePath}`;
   return sanitizeForRegistryPath(raw);
 }
 
