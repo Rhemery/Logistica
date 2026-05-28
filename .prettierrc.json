@@ -1,1 +1,23 @@
-{}
+{
+  "plugins": ["prettier-plugin-java"],
+  "overrides": [
+    {
+      "files": ["**/*.js", "**/*.cjs", "**/*.mjs", "**/*.jsx", "**/*.ts"],
+      "options": {
+        "tabWidth": 2,
+        "semi": true,
+        "singleQuote": false,
+        "trailingComma": "all",
+        "printWidth": 100
+      }
+    },
+    {
+      "files": ["**/*.java"],
+      "options": {
+        "parser": "java",
+        "tabWidth": 2,
+        "printWidth": 100
+      }
+    }
+  ]
+}
